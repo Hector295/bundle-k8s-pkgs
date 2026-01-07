@@ -30,6 +30,13 @@ DOWNLOAD_IMAGES="${DOWNLOAD_IMAGES:-yes}"
 DOWNLOAD_CNI="${DOWNLOAD_CNI:-yes}"
 CNI_PROVIDER="${CNI_PROVIDER:-calico}"  # calico, flannel, none
 
+# Skip options (reuse previously downloaded packages)
+SKIP_APT_DOWNLOAD="${SKIP_APT_DOWNLOAD:-auto}"  # yes, no, auto
+SKIP_PIP_DOWNLOAD="${SKIP_PIP_DOWNLOAD:-auto}"  # yes, no, auto
+SKIP_K8S_DOWNLOAD="${SKIP_K8S_DOWNLOAD:-no}"    # yes, no
+SKIP_CONTAINERD_DOWNLOAD="${SKIP_CONTAINERD_DOWNLOAD:-no}"  # yes, no
+SKIP_CNI_DOWNLOAD="${SKIP_CNI_DOWNLOAD:-no}"    # yes, no
+
 # Colors
 readonly GREEN='\033[0;32m'
 readonly RED='\033[0;31m'
@@ -182,15 +189,56 @@ validate_version() {
 setup_workspace() {
     section "Setting Up Workspace"
 
-    # Clean previous workspace
+    # Preserve downloaded packages if they exist
+    local preserve_apt=false
+    local preserve_pip=false
+
     if [[ -d "$WORK_DIR" ]]; then
+        # Check for existing downloads
+        if [[ -d "$WORK_DIR/offline_dpkg_packages" ]]; then
+            local apt_count=$(ls -1 "$WORK_DIR/offline_dpkg_packages"/*.deb 2>/dev/null | wc -l || echo "0")
+            if [[ $apt_count -gt 0 ]]; then
+                info "Preserving $apt_count APT packages from previous run"
+                mv "$WORK_DIR/offline_dpkg_packages" /tmp/offline_dpkg_packages_backup
+                preserve_apt=true
+            fi
+        fi
+
+        if [[ -d "$WORK_DIR/offline_pip_packages" ]]; then
+            local pip_count=$(ls -1 "$WORK_DIR/offline_pip_packages"/* 2>/dev/null | wc -l || echo "0")
+            if [[ $pip_count -gt 0 ]]; then
+                info "Preserving $pip_count PIP packages from previous run"
+                mv "$WORK_DIR/offline_pip_packages" /tmp/offline_pip_packages_backup
+                preserve_pip=true
+            fi
+        fi
+
+        # Clean workspace
         warning "Removing previous workspace"
         rm -rf "$WORK_DIR"
     fi
 
     # Create directory structure
     mkdir -p "$OUTPUT_DIR"
-    mkdir -p "$BUNDLE_DIR"/{binaries/{kubernetes,containerd,cni},images,packages/{apt,pip},scripts,config}
+    mkdir -p "$BUNDLE_DIR"/binaries/kubernetes
+    mkdir -p "$BUNDLE_DIR"/binaries/containerd
+    mkdir -p "$BUNDLE_DIR"/binaries/cni
+    mkdir -p "$BUNDLE_DIR"/images
+    mkdir -p "$BUNDLE_DIR"/packages/apt
+    mkdir -p "$BUNDLE_DIR"/packages/pip
+    mkdir -p "$BUNDLE_DIR"/scripts
+    mkdir -p "$BUNDLE_DIR"/config
+
+    # Restore preserved packages
+    if [[ "$preserve_apt" == "true" ]]; then
+        mv /tmp/offline_dpkg_packages_backup "$WORK_DIR/offline_dpkg_packages"
+        log "Restored APT packages"
+    fi
+
+    if [[ "$preserve_pip" == "true" ]]; then
+        mv /tmp/offline_pip_packages_backup "$WORK_DIR/offline_pip_packages"
+        log "Restored PIP packages"
+    fi
 
     # Initialize log
     : > "$LOG_FILE"
@@ -395,16 +443,48 @@ for pkg in data['system_packages']['apt']:
 
     info "APT packages to download: ${#apt_packages[@]}"
 
-    # Use download-apt.sh
     cd "$WORK_DIR"
-    cp "${SCRIPT_DIR}/download-apt.sh" .
-    chmod +x download-apt.sh
 
-    progress "Executing download-apt.sh..."
-    if ./download-apt.sh "${apt_packages[@]}" >> "$LOG_FILE" 2>&1; then
-        log "APT packages downloaded"
-    else
-        error "Failed to download APT packages"
+    # Determine if we should skip APT download
+    local skip_download=false
+
+    if [[ "$SKIP_APT_DOWNLOAD" == "yes" ]]; then
+        # Explicit skip requested
+        if [[ -d "./offline_dpkg_packages" ]]; then
+            local existing_debs=$(ls -1 ./offline_dpkg_packages/*.deb 2>/dev/null | wc -l || echo "0")
+            if [[ $existing_debs -gt 0 ]]; then
+                info "SKIP_APT_DOWNLOAD=yes - Reusing $existing_debs existing .deb files"
+                skip_download=true
+            else
+                warning "SKIP_APT_DOWNLOAD=yes but no packages found, will download"
+            fi
+        else
+            warning "SKIP_APT_DOWNLOAD=yes but offline_dpkg_packages not found, will download"
+        fi
+    elif [[ "$SKIP_APT_DOWNLOAD" == "auto" ]]; then
+        # Auto-detect existing packages
+        if [[ -d "./offline_dpkg_packages" ]]; then
+            local existing_debs=$(ls -1 ./offline_dpkg_packages/*.deb 2>/dev/null | wc -l || echo "0")
+            if [[ $existing_debs -gt 0 ]]; then
+                warning "Auto-detected existing APT packages: $existing_debs .deb files"
+                info "Reusing previously downloaded packages (use SKIP_APT_DOWNLOAD=no to force re-download)"
+                skip_download=true
+            fi
+        fi
+    fi
+    # else SKIP_APT_DOWNLOAD=no, always download
+
+    # Download only if not skipped
+    if [[ "$skip_download" == "false" ]]; then
+        cp "${SCRIPT_DIR}/download-apt.sh" .
+        chmod +x download-apt.sh
+
+        progress "Executing download-apt.sh..."
+        if ./download-apt.sh "${apt_packages[@]}" >> "$LOG_FILE" 2>&1; then
+            log "APT packages downloaded"
+        else
+            error "Failed to download APT packages"
+        fi
     fi
 
     # Move packages
@@ -417,7 +497,7 @@ for pkg in data['system_packages']['apt']:
         fi
 
         local deb_count=$(ls -1 "${BUNDLE_DIR}/packages/apt/"*.deb 2>/dev/null | wc -l)
-        log "Moved $deb_count .deb packages"
+        log "Moved $deb_count .deb packages to bundle"
 
         rm -rf ./offline_dpkg_packages
     fi
@@ -433,14 +513,46 @@ for pkg in data['system_packages']['pip']:
     if [[ ${#pip_packages[@]} -gt 0 ]]; then
         info "PIP packages to download: ${#pip_packages[@]}"
 
-        cp "${SCRIPT_DIR}/download-pip.sh" .
-        chmod +x download-pip.sh
+        # Determine if we should skip PIP download
+        local skip_pip_download=false
 
-        progress "Executing download-pip.sh..."
-        if ./download-pip.sh "${pip_packages[@]}" >> "$LOG_FILE" 2>&1; then
-            log "PIP packages downloaded"
-        else
-            warning "Failed to download PIP packages"
+        if [[ "$SKIP_PIP_DOWNLOAD" == "yes" ]]; then
+            # Explicit skip requested
+            if [[ -d "./offline_pip_packages" ]]; then
+                local existing_pip=$(ls -1 ./offline_pip_packages/* 2>/dev/null | wc -l || echo "0")
+                if [[ $existing_pip -gt 0 ]]; then
+                    info "SKIP_PIP_DOWNLOAD=yes - Reusing $existing_pip existing pip files"
+                    skip_pip_download=true
+                else
+                    warning "SKIP_PIP_DOWNLOAD=yes but no packages found, will download"
+                fi
+            else
+                warning "SKIP_PIP_DOWNLOAD=yes but offline_pip_packages not found, will download"
+            fi
+        elif [[ "$SKIP_PIP_DOWNLOAD" == "auto" ]]; then
+            # Auto-detect existing packages
+            if [[ -d "./offline_pip_packages" ]]; then
+                local existing_pip=$(ls -1 ./offline_pip_packages/* 2>/dev/null | wc -l || echo "0")
+                if [[ $existing_pip -gt 0 ]]; then
+                    warning "Auto-detected existing PIP packages: $existing_pip files"
+                    info "Reusing previously downloaded packages (use SKIP_PIP_DOWNLOAD=no to force re-download)"
+                    skip_pip_download=true
+                fi
+            fi
+        fi
+        # else SKIP_PIP_DOWNLOAD=no, always download
+
+        # Download only if not skipped
+        if [[ "$skip_pip_download" == "false" ]]; then
+            cp "${SCRIPT_DIR}/download-pip.sh" .
+            chmod +x download-pip.sh
+
+            progress "Executing download-pip.sh..."
+            if ./download-pip.sh "${pip_packages[@]}" >> "$LOG_FILE" 2>&1; then
+                log "PIP packages downloaded"
+            else
+                warning "Failed to download PIP packages"
+            fi
         fi
 
         if [[ -d "./offline_pip_packages" ]]; then
@@ -1028,6 +1140,13 @@ show_banner() {
     echo "  Architecture:    ${ARCH}"
     echo "  CNI Provider:    ${CNI_PROVIDER}"
     echo ""
+    echo "  Skip Options:"
+    echo "    APT Download:        ${SKIP_APT_DOWNLOAD}"
+    echo "    PIP Download:        ${SKIP_PIP_DOWNLOAD}"
+    echo "    K8s Download:        ${SKIP_K8S_DOWNLOAD}"
+    echo "    Containerd Download: ${SKIP_CONTAINERD_DOWNLOAD}"
+    echo "    CNI Download:        ${SKIP_CNI_DOWNLOAD}"
+    echo ""
     echo "════════════════════════════════════════════════════════════════"
     echo ""
 }
@@ -1044,15 +1163,31 @@ Arguments:
   ARCH             Architecture (default: amd64)
 
 Environment Variables:
-  DOWNLOAD_IMAGES  Download container images (default: yes)
-  DOWNLOAD_CNI     Download CNI plugins (default: yes)
-  CNI_PROVIDER     CNI provider: calico, flannel, none (default: calico)
+  DOWNLOAD_IMAGES         Download container images (default: yes)
+  DOWNLOAD_CNI            Download CNI plugins (default: yes)
+  CNI_PROVIDER            CNI provider: calico, flannel, none (default: calico)
+
+  SKIP_APT_DOWNLOAD       Skip APT packages download: yes, no, auto (default: auto)
+  SKIP_PIP_DOWNLOAD       Skip PIP packages download: yes, no, auto (default: auto)
+  SKIP_K8S_DOWNLOAD       Skip K8s binaries download: yes, no (default: no)
+  SKIP_CONTAINERD_DOWNLOAD Skip containerd download: yes, no (default: no)
+  SKIP_CNI_DOWNLOAD       Skip CNI plugins download: yes, no (default: no)
+
+Skip Options:
+  - auto: Auto-detect and reuse existing packages if found
+  - yes:  Force skip, fail if packages not found
+  - no:   Always download (ignore existing packages)
 
 Examples:
-  $0                           # Use defaults (K8s 1.30.2, Ubuntu 22.04, amd64)
-  $0 1.29.6                    # K8s 1.29.6
-  $0 1.30.2 22.04 arm64        # ARM64 architecture
-  CNI_PROVIDER=flannel $0      # Use Flannel CNI
+  $0                                    # Use defaults (K8s 1.30.2, Ubuntu 22.04, amd64)
+  $0 1.29.6                             # K8s 1.29.6
+  $0 1.30.2 22.04 arm64                 # ARM64 architecture
+  CNI_PROVIDER=flannel $0               # Use Flannel CNI
+
+  # Skip downloads (reuse previously downloaded packages)
+  SKIP_APT_DOWNLOAD=yes $0              # Skip APT packages
+  SKIP_APT_DOWNLOAD=yes SKIP_PIP_DOWNLOAD=yes $0  # Skip APT and PIP
+  SKIP_APT_DOWNLOAD=no $0               # Force re-download APT packages
 
 Available K8S versions:
   - 1.30.2 (latest)
