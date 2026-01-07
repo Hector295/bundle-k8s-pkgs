@@ -37,6 +37,9 @@ SKIP_K8S_DOWNLOAD="${SKIP_K8S_DOWNLOAD:-no}"    # yes, no
 SKIP_CONTAINERD_DOWNLOAD="${SKIP_CONTAINERD_DOWNLOAD:-no}"  # yes, no
 SKIP_CNI_DOWNLOAD="${SKIP_CNI_DOWNLOAD:-no}"    # yes, no
 
+# Cleanup option
+SKIP_CLEANUP="${SKIP_CLEANUP:-no}"  # yes = keep workspace, no = cleanup after success
+
 # Colors
 readonly GREEN='\033[0;32m'
 readonly RED='\033[0;31m'
@@ -1079,20 +1082,27 @@ EOF
 create_tarball() {
     section "Creating Bundle Tarball"
 
-    cd "$WORK_DIR"
-
     local tarball_name="${BUNDLE_NAME}.tar.gz"
-    local tarball_path="${OUTPUT_DIR}/${tarball_name}"
+    local tarball_path="${SCRIPT_DIR}/${OUTPUT_DIR}/${tarball_name}"
+
+    # Ensure output directory exists
+    mkdir -p "${SCRIPT_DIR}/${OUTPUT_DIR}"
 
     progress "Compressing bundle (this may take a while)..."
-    tar -czf "$tarball_path" "$BUNDLE_NAME"
 
-    local size=$(du -h "$tarball_path" | cut -f1)
-    log "Bundle created: $tarball_name ($size)"
+    # Change to WORK_DIR and create tar with absolute path
+    cd "${SCRIPT_DIR}/${WORK_DIR}"
+
+    if tar -czf "$tarball_path" "$BUNDLE_NAME" 2>&1 | tee -a "$LOG_FILE"; then
+        local size=$(du -h "$tarball_path" | cut -f1)
+        log "Bundle created: $tarball_name ($size)"
+    else
+        error "Failed to create tarball"
+    fi
 
     # Checksums
     progress "Calculating checksums..."
-    cd "$OUTPUT_DIR"
+    cd "${SCRIPT_DIR}/${OUTPUT_DIR}"
     sha256sum "$tarball_name" > "${tarball_name}.sha256"
     md5sum "$tarball_name" > "${tarball_name}.md5"
 
@@ -1135,10 +1145,31 @@ show_statistics() {
 # ========================= CLEANUP =========================
 
 cleanup_workspace() {
+    # Check if user wants to skip cleanup
+    if [[ "$SKIP_CLEANUP" == "yes" ]]; then
+        section "Skipping Cleanup"
+        info "SKIP_CLEANUP=yes - Workspace preserved at: ${SCRIPT_DIR}/${WORK_DIR}"
+        warning "Remember to manually clean up: rm -rf ${WORK_DIR}"
+        return 0
+    fi
+
     section "Cleaning Up"
 
-    if [[ -d "$WORK_DIR" ]]; then
-        rm -rf "$WORK_DIR"
+    # SAFETY: Only cleanup if tarball was successfully created
+    local tarball_path="${SCRIPT_DIR}/${OUTPUT_DIR}/${BUNDLE_NAME}.tar.gz"
+
+    if [[ ! -f "$tarball_path" ]]; then
+        error "Tarball not found at $tarball_path - ABORTING CLEANUP to preserve downloaded packages"
+    fi
+
+    # Verify tarball is not empty
+    local tarball_size=$(stat -f%z "$tarball_path" 2>/dev/null || stat -c%s "$tarball_path" 2>/dev/null || echo "0")
+    if [[ "$tarball_size" -lt 1000000 ]]; then  # Less than 1MB is suspicious
+        error "Tarball too small ($tarball_size bytes) - ABORTING CLEANUP to preserve downloaded packages"
+    fi
+
+    if [[ -d "${SCRIPT_DIR}/${WORK_DIR}" ]]; then
+        rm -rf "${SCRIPT_DIR}/${WORK_DIR}"
         log "Workspace cleaned"
     fi
 }
