@@ -1,250 +1,197 @@
-.PHONY: help build verify clean install-cubic test-vm all
+.PHONY: help build-1.30 build-1.29 build-1.28 verify clean list-versions test-install
 
-# Variables
-BUNDLE_OUTPUT = bundle-output/k8s-offline-bundle-1.0.0.tar.gz
-SCRIPTS = prepare-k8s-bundle.sh cubic-install-bundle.sh verify-bundle.sh download-apt.sh download-pip.sh
+# Default K8S version
+K8S_VERSION ?= 1.30.2
+UBUNTU_VERSION ?= 22.04
+ARCH ?= amd64
 
-# Default target
+# Output bundle name
+BUNDLE_NAME = k8s-complete-$(K8S_VERSION)-ubuntu$(UBUNTU_VERSION)-$(ARCH)
+BUNDLE_FILE = k8s-bundle-output/$(BUNDLE_NAME).tar.gz
+
 help:
 	@echo ""
 	@echo "═══════════════════════════════════════════════════════════════"
-	@echo "  K8S Offline Bundle - Makefile Commands"
+	@echo "  Kubernetes Complete Bundle - Makefile"
 	@echo "═══════════════════════════════════════════════════════════════"
 	@echo ""
 	@echo "Available targets:"
 	@echo ""
-	@echo "  make build        - Create the offline bundle"
-	@echo "  make verify       - Verify bundle integrity and contents"
-	@echo "  make clean        - Remove generated files and directories"
-	@echo "  make install-cubic - Install bundle in Cubic (requires Cubic project)"
-	@echo "  make test-vm      - Test bundle in a local VM (requires multipass)"
-	@echo "  make all          - Build and verify bundle"
-	@echo "  make show-info    - Show bundle information"
-	@echo "  make checksums    - Verify all checksums"
-	@echo "  make help         - Show this help message"
+	@echo "  make build               - Build bundle with default version (K8s $(K8S_VERSION))"
+	@echo "  make build-1.30          - Build K8s 1.30.2 bundle"
+	@echo "  make build-1.29          - Build K8s 1.29.6 bundle"
+	@echo "  make build-1.28          - Build K8s 1.28.11 bundle"
+	@echo ""
+	@echo "  make build K8S_VERSION=X - Build specific K8s version"
+	@echo "  make verify              - Verify bundle integrity"
+	@echo "  make extract             - Extract bundle for inspection"
+	@echo "  make clean               - Remove generated files"
+	@echo "  make list-versions       - List available K8s versions"
+	@echo "  make show-info           - Show bundle information"
+	@echo "  make test-install        - Test installation in Docker"
+	@echo ""
+	@echo "Environment variables:"
+	@echo "  K8S_VERSION    = $(K8S_VERSION)"
+	@echo "  UBUNTU_VERSION = $(UBUNTU_VERSION)"
+	@echo "  ARCH           = $(ARCH)"
+	@echo "  CNI_PROVIDER   = calico (or flannel)"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make build        # Create bundle"
-	@echo "  make verify       # Verify bundle"
-	@echo "  make clean build  # Clean and rebuild"
+	@echo "  make build                           # Default: K8s 1.30.2"
+	@echo "  make build-1.29                      # K8s 1.29.6"
+	@echo "  make build K8S_VERSION=1.30.2        # Explicit version"
+	@echo "  make build ARCH=arm64                # ARM64 build"
+	@echo "  CNI_PROVIDER=flannel make build      # Use Flannel CNI"
 	@echo ""
 	@echo "═══════════════════════════════════════════════════════════════"
 	@echo ""
 
-# Build the bundle
-build: check-prerequisites
-	@echo "Building K8S offline bundle..."
-	./prepare-k8s-bundle.sh
-	@echo ""
-	@echo "✓ Bundle created successfully!"
-	@echo "  Location: $(BUNDLE_OUTPUT)"
-	@echo ""
+# Build with default or specified version
+build:
+	@echo "Building Kubernetes $(K8S_VERSION) bundle..."
+	./create-k8s-bundle.sh $(K8S_VERSION) $(UBUNTU_VERSION) $(ARCH)
+
+# Quick build targets for common versions
+build-1.30:
+	@$(MAKE) build K8S_VERSION=1.30.2
+
+build-1.29:
+	@$(MAKE) build K8S_VERSION=1.29.6
+
+build-1.28:
+	@$(MAKE) build K8S_VERSION=1.28.11
+
+# Build for ARM64
+build-arm64:
+	@$(MAKE) build ARCH=arm64
 
 # Verify bundle
 verify:
-	@if [ ! -f "$(BUNDLE_OUTPUT)" ]; then \
-		echo "Error: Bundle not found. Run 'make build' first."; \
+	@if [ ! -f "$(BUNDLE_FILE)" ]; then \
+		echo "Error: Bundle not found: $(BUNDLE_FILE)"; \
+		echo "Run 'make build' first"; \
 		exit 1; \
 	fi
-	./verify-bundle.sh $(BUNDLE_OUTPUT)
-
-# Clean generated files
-clean:
-	@echo "Cleaning generated files..."
-	rm -rf bundle-workspace/
-	rm -rf bundle-output/
-	rm -rf offline_dpkg_packages/
-	rm -rf offline_pip_packages/
-	rm -f *.log
-	rm -f download*.log
-	@echo "✓ Clean complete"
-
-# Deep clean (including temporary test files)
-distclean: clean
-	rm -rf /tmp/k8s-bundle-verify-*
-	@echo "✓ Deep clean complete"
-
-# Check prerequisites
-check-prerequisites:
-	@echo "Checking prerequisites..."
-	@command -v tar >/dev/null 2>&1 || { echo "Error: tar not found"; exit 1; }
-	@command -v gzip >/dev/null 2>&1 || { echo "Error: gzip not found"; exit 1; }
-	@command -v apt-cache >/dev/null 2>&1 || { echo "Error: apt-cache not found"; exit 1; }
-	@command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 1; }
-	@test -f download-apt.sh || { echo "Error: download-apt.sh not found"; exit 1; }
-	@test -f download-pip.sh || { echo "Error: download-pip.sh not found"; exit 1; }
-	@echo "✓ All prerequisites met"
-
-# Build and verify
-all: build verify
+	@echo "Verifying bundle: $(BUNDLE_FILE)"
+	@if [ -f "$(BUNDLE_FILE).sha256" ]; then \
+		cd k8s-bundle-output && sha256sum -c $(BUNDLE_NAME).tar.gz.sha256; \
+	else \
+		echo "Warning: SHA256 checksum not found"; \
+	fi
+	@tar -tzf "$(BUNDLE_FILE)" | head -20
+	@echo "..."
+	@echo "Bundle appears valid"
 
 # Show bundle information
 show-info:
-	@if [ ! -f "$(BUNDLE_OUTPUT)" ]; then \
+	@if [ ! -f "$(BUNDLE_FILE)" ]; then \
 		echo "Error: Bundle not found. Run 'make build' first."; \
 		exit 1; \
 	fi
 	@echo ""
 	@echo "Bundle Information:"
 	@echo "─────────────────────────────────────────────────────"
-	@echo "File: $(BUNDLE_OUTPUT)"
-	@echo -n "Size: "; du -h "$(BUNDLE_OUTPUT)" | cut -f1
-	@echo -n "Created: "; stat -c %y "$(BUNDLE_OUTPUT)" 2>/dev/null || stat -f "%Sm" "$(BUNDLE_OUTPUT)"
+	@echo "Name:       $(BUNDLE_NAME)"
+	@echo "File:       $(BUNDLE_FILE)"
+	@echo "Size:       $$(du -h "$(BUNDLE_FILE)" | cut -f1)"
+	@echo "K8s:        $(K8S_VERSION)"
+	@echo "Ubuntu:     $(UBUNTU_VERSION)"
+	@echo "Arch:       $(ARCH)"
 	@echo ""
-	@echo "Checksums:"
-	@if [ -f "$(BUNDLE_OUTPUT).sha256" ]; then \
-		echo -n "  SHA256: "; cat "$(BUNDLE_OUTPUT).sha256" | cut -d' ' -f1; \
-	fi
-	@if [ -f "$(BUNDLE_OUTPUT).md5" ]; then \
-		echo -n "  MD5:    "; cat "$(BUNDLE_OUTPUT).md5" | cut -d' ' -f1; \
+	@if [ -f "$(BUNDLE_FILE).sha256" ]; then \
+		echo "SHA256:     $$(cat "$(BUNDLE_FILE).sha256" | cut -d' ' -f1)"; \
 	fi
 	@echo ""
 	@echo "Contents:"
-	@tar -tzf "$(BUNDLE_OUTPUT)" | head -20
-	@echo "  ... (use 'tar -tzf $(BUNDLE_OUTPUT)' to see all files)"
+	@tar -tzf "$(BUNDLE_FILE)" | grep -E '(kubeadm|kubelet|kubectl|containerd|README)' | head -10
 	@echo ""
 
-# Verify checksums only
-checksums:
-	@if [ ! -f "$(BUNDLE_OUTPUT)" ]; then \
-		echo "Error: Bundle not found. Run 'make build' first."; \
-		exit 1; \
-	fi
-	@echo "Verifying checksums..."
-	@if [ -f "$(BUNDLE_OUTPUT).sha256" ]; then \
-		sha256sum -c "$(BUNDLE_OUTPUT).sha256" && echo "✓ SHA256 valid"; \
-	else \
-		echo "⚠ SHA256 checksum file not found"; \
-	fi
-	@if [ -f "$(BUNDLE_OUTPUT).md5" ]; then \
-		md5sum -c "$(BUNDLE_OUTPUT).md5" && echo "✓ MD5 valid"; \
-	else \
-		echo "⚠ MD5 checksum file not found"; \
-	fi
-
-# Install in Cubic (requires CUBIC_PROJECT environment variable)
-install-cubic:
-	@if [ -z "$(CUBIC_PROJECT)" ]; then \
-		echo "Error: CUBIC_PROJECT environment variable not set"; \
-		echo "Usage: CUBIC_PROJECT=~/Cubic/my-project make install-cubic"; \
-		exit 1; \
-	fi
-	@if [ ! -d "$(CUBIC_PROJECT)" ]; then \
-		echo "Error: Cubic project directory not found: $(CUBIC_PROJECT)"; \
-		exit 1; \
-	fi
-	@if [ ! -f "$(BUNDLE_OUTPUT)" ]; then \
-		echo "Error: Bundle not found. Run 'make build' first."; \
-		exit 1; \
-	fi
-	@echo "Installing bundle to Cubic project..."
-	cp "$(BUNDLE_OUTPUT)" "$(CUBIC_PROJECT)/custom-root/opt/"
-	cp "$(BUNDLE_OUTPUT).sha256" "$(CUBIC_PROJECT)/custom-root/opt/" 2>/dev/null || true
-	cp cubic-install-bundle.sh "$(CUBIC_PROJECT)/custom-root/opt/"
-	@echo ""
-	@echo "✓ Files copied to Cubic project"
-	@echo ""
-	@echo "Next steps (in Cubic chroot):"
-	@echo "  cd /opt"
-	@echo "  ./cubic-install-bundle.sh"
-	@echo ""
-
-# Test bundle in a VM using multipass
-test-vm:
-	@if ! command -v multipass >/dev/null 2>&1; then \
-		echo "Error: multipass not found. Install it first."; \
-		echo "  sudo snap install multipass"; \
-		exit 1; \
-	fi
-	@if [ ! -f "$(BUNDLE_OUTPUT)" ]; then \
-		echo "Error: Bundle not found. Run 'make build' first."; \
-		exit 1; \
-	fi
-	@echo "Creating test VM..."
-	multipass launch --name k8s-bundle-test --cpus 2 --memory 4G --disk 20G 22.04
-	@echo "Copying bundle to VM..."
-	multipass transfer "$(BUNDLE_OUTPUT)" k8s-bundle-test:/tmp/
-	@echo "Extracting and installing bundle..."
-	multipass exec k8s-bundle-test -- bash -c "cd /tmp && sudo tar -xzf k8s-offline-bundle-*.tar.gz && cd k8s-offline-bundle && sudo ./install.sh"
-	@echo ""
-	@echo "✓ Bundle installed in VM"
-	@echo ""
-	@echo "To access the VM:"
-	@echo "  multipass shell k8s-bundle-test"
-	@echo ""
-	@echo "To verify installation:"
-	@echo "  multipass exec k8s-bundle-test -- lsmod | grep ip_vs"
-	@echo "  multipass exec k8s-bundle-test -- sudo sysctl net.ipv4.ip_forward"
-	@echo ""
-	@echo "To clean up:"
-	@echo "  multipass delete k8s-bundle-test"
-	@echo "  multipass purge"
-	@echo ""
-
-# Test basic functionality
-test-local:
-	@echo "Running local tests..."
-	@echo ""
-	@echo "1. Checking scripts are executable:"
-	@for script in $(SCRIPTS); do \
-		if [ -x "$$script" ]; then \
-			echo "  ✓ $$script"; \
-		else \
-			echo "  ✗ $$script (not executable)"; \
-		fi; \
-	done
-	@echo ""
-	@echo "2. Checking script syntax:"
-	@for script in $(SCRIPTS); do \
-		if bash -n "$$script" 2>/dev/null; then \
-			echo "  ✓ $$script (syntax OK)"; \
-		else \
-			echo "  ✗ $$script (syntax error)"; \
-		fi; \
-	done
-	@echo ""
-	@echo "✓ Local tests complete"
-
-# List available package versions
-list-packages:
-	@echo "Available package versions in repositories:"
-	@echo ""
-	@echo "APT Packages:"
-	@echo "─────────────────────────────────────────────────────"
-	@apt-cache policy jq | grep Candidate || echo "  jq: not found"
-	@apt-cache policy ipvsadm | grep Candidate || echo "  ipvsadm: not found"
-	@apt-cache policy iptables | grep Candidate || echo "  iptables: not found"
-	@apt-cache policy ebtables | grep Candidate || echo "  ebtables: not found"
-	@echo ""
-	@echo "PIP Packages:"
-	@echo "─────────────────────────────────────────────────────"
-	@pip3 index versions jc 2>/dev/null | head -5 || echo "  jc: check failed"
-	@echo ""
-
-# Update apt cache
-update-cache:
-	@echo "Updating APT cache..."
-	sudo apt update
-	@echo "✓ APT cache updated"
-
-# Quick rebuild (clean + build + verify)
-rebuild: clean build verify
-
-# Extract bundle to inspect
+# Extract bundle for inspection
 extract:
-	@if [ ! -f "$(BUNDLE_OUTPUT)" ]; then \
+	@if [ ! -f "$(BUNDLE_FILE)" ]; then \
 		echo "Error: Bundle not found. Run 'make build' first."; \
 		exit 1; \
 	fi
-	@echo "Extracting bundle for inspection..."
-	mkdir -p bundle-inspect
-	tar -xzf "$(BUNDLE_OUTPUT)" -C bundle-inspect
-	@echo "✓ Bundle extracted to: bundle-inspect/"
+	@echo "Extracting bundle..."
+	@mkdir -p bundle-inspect
+	@tar -xzf "$(BUNDLE_FILE)" -C bundle-inspect
+	@echo "✓ Extracted to: bundle-inspect/$(BUNDLE_NAME)/"
 	@echo ""
 	@echo "To inspect:"
-	@echo "  cd bundle-inspect/k8s-offline-bundle"
+	@echo "  cd bundle-inspect/$(BUNDLE_NAME)"
 	@echo "  ls -la"
 	@echo ""
-	@echo "To clean up:"
-	@echo "  rm -rf bundle-inspect/"
+
+# List available versions
+list-versions:
+	@./list-k8s-versions.py
+
+# Show version matrix
+show-matrix:
+	@./list-k8s-versions.py --matrix
+
+# Test installation in Docker
+test-install:
+	@if [ ! -f "$(BUNDLE_FILE)" ]; then \
+		echo "Error: Bundle not found. Run 'make build' first."; \
+		exit 1; \
+	fi
+	@echo "Testing installation in Docker container..."
+	@docker run --rm --privileged \
+		-v "$(PWD)/k8s-bundle-output:/bundle:ro" \
+		-v "$(PWD)/bundle-inspect:/tmp/test:rw" \
+		ubuntu:$(UBUNTU_VERSION) bash -c ' \
+		cd /tmp/test && \
+		tar -xzf /bundle/$(BUNDLE_NAME).tar.gz && \
+		cd $(BUNDLE_NAME) && \
+		echo "Bundle extracted successfully" && \
+		ls -la && \
+		echo "" && \
+		echo "To actually test installation, run:" && \
+		echo "  sudo ./install-k8s.sh" \
+	'
+
+# Clean generated files
+clean:
+	@echo "Cleaning generated files..."
+	rm -rf k8s-bundle-workspace/
+	rm -rf k8s-bundle-output/
+	rm -rf bundle-inspect/
+	rm -rf offline_dpkg_packages/
+	rm -rf offline_pip_packages/
+	rm -f *.log
+	@echo "✓ Clean complete"
+
+# Deep clean (including downloads)
+distclean: clean
+	@echo "Deep cleaning..."
+	rm -rf /tmp/k8s-*
+	@echo "✓ Deep clean complete"
+
+# Check prerequisites
+check-prereqs:
+	@echo "Checking prerequisites..."
+	@command -v python3 >/dev/null || { echo "✗ python3 not found"; exit 1; }
+	@python3 -c "import yaml" 2>/dev/null || { echo "✗ python3-yaml not found"; exit 1; }
+	@command -v curl >/dev/null || { echo "✗ curl not found"; exit 1; }
+	@command -v wget >/dev/null || { echo "✗ wget not found"; exit 1; }
+	@test -f k8s-versions.yaml || { echo "✗ k8s-versions.yaml not found"; exit 1; }
+	@test -f download-apt.sh || { echo "✗ download-apt.sh not found"; exit 1; }
+	@test -f download-pip.sh || { echo "✗ download-pip.sh not found"; exit 1; }
+	@echo "✓ All prerequisites met"
+
+# Build all versions
+build-all:
+	@echo "Building all K8s versions..."
+	@$(MAKE) build-1.30
+	@$(MAKE) build-1.29
+	@$(MAKE) build-1.28
 	@echo ""
+	@echo "✓ All bundles built"
+	@ls -lh k8s-bundle-output/
+
+# Quick build and verify
+quick:
+	@$(MAKE) build
+	@$(MAKE) verify
+	@$(MAKE) show-info

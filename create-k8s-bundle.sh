@@ -39,33 +39,39 @@ readonly PURPLE='\033[0;35m'
 readonly CYAN='\033[0;36m'
 readonly NC='\033[0m'
 
-# Log file
+# Log file (will be created in setup_workspace)
 LOG_FILE="${OUTPUT_DIR}/k8s-bundle-creation.log"
 
 # ========================= LOGGING FUNCTIONS =========================
 
 log() {
+    [[ -d "$OUTPUT_DIR" ]] || mkdir -p "$OUTPUT_DIR"
     echo -e "${GREEN}[$(date +'%H:%M:%S')] ✓ $1${NC}" | tee -a "$LOG_FILE"
 }
 
 error() {
+    [[ -d "$OUTPUT_DIR" ]] || mkdir -p "$OUTPUT_DIR"
     echo -e "${RED}[$(date +'%H:%M:%S')] ✗ ERROR: $1${NC}" | tee -a "$LOG_FILE"
     exit 1
 }
 
 info() {
+    [[ -d "$OUTPUT_DIR" ]] || mkdir -p "$OUTPUT_DIR"
     echo -e "${BLUE}[$(date +'%H:%M:%S')] ℹ $1${NC}" | tee -a "$LOG_FILE"
 }
 
 warning() {
+    [[ -d "$OUTPUT_DIR" ]] || mkdir -p "$OUTPUT_DIR"
     echo -e "${YELLOW}[$(date +'%H:%M:%S')] ⚠ $1${NC}" | tee -a "$LOG_FILE"
 }
 
 progress() {
+    [[ -d "$OUTPUT_DIR" ]] || mkdir -p "$OUTPUT_DIR"
     echo -e "${PURPLE}[$(date +'%H:%M:%S')] ⚙ $1${NC}" | tee -a "$LOG_FILE"
 }
 
 section() {
+    [[ -d "$OUTPUT_DIR" ]] || mkdir -p "$OUTPUT_DIR"
     echo -e "${CYAN}" | tee -a "$LOG_FILE"
     echo "═══════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
     echo "  $1" | tee -a "$LOG_FILE"
