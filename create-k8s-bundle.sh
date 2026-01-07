@@ -491,9 +491,23 @@ for pkg in data['system_packages']['apt']:
     if [[ -d "./offline_dpkg_packages" ]]; then
         mv ./offline_dpkg_packages/*.deb "${BUNDLE_DIR}/packages/apt/" 2>/dev/null || true
 
-        # Copy install script
+        # Copy install script if exists
         if [[ -f "./offline_dpkg_packages/install.sh" ]]; then
             cp ./offline_dpkg_packages/install.sh "${BUNDLE_DIR}/scripts/install-apt.sh"
+        else
+            # Generate a basic install script if it doesn't exist (for skip case)
+            info "Generating install-apt.sh (not found in offline_dpkg_packages)"
+            cat > "${BUNDLE_DIR}/scripts/install-apt.sh" << 'EOF'
+#!/bin/bash
+# Basic APT packages installer
+set -e
+cd "$(dirname "$0")/../packages/apt"
+echo "Installing APT packages..."
+sudo dpkg -i *.deb 2>/dev/null || true
+sudo dpkg --configure -a
+echo "APT packages installed"
+EOF
+            chmod +x "${BUNDLE_DIR}/scripts/install-apt.sh"
         fi
 
         local deb_count=$(ls -1 "${BUNDLE_DIR}/packages/apt/"*.deb 2>/dev/null | wc -l)
