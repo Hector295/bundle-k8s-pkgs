@@ -30,6 +30,7 @@ readonly NC='\033[0m'
 
 # Log file
 LOG_FILE="${OUTPUT_DIR}/bundle-preparation.log"
+touch $LOG_FILE
 
 # ========================= APT PACKAGES =========================
 
