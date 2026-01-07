@@ -445,6 +445,9 @@ for pkg in data['system_packages']['apt']:
 
     cd "$WORK_DIR"
 
+    # Local bundle directory (we're now inside WORK_DIR)
+    local local_bundle_dir="${BUNDLE_NAME}"
+
     # Determine if we should skip APT download
     local skip_download=false
 
@@ -489,15 +492,15 @@ for pkg in data['system_packages']['apt']:
 
     # Move packages
     if [[ -d "./offline_dpkg_packages" ]]; then
-        mv ./offline_dpkg_packages/*.deb "${BUNDLE_DIR}/packages/apt/" 2>/dev/null || true
+        mv ./offline_dpkg_packages/*.deb "./${local_bundle_dir}/packages/apt/" 2>/dev/null || true
 
         # Copy install script if exists
         if [[ -f "./offline_dpkg_packages/install.sh" ]]; then
-            cp ./offline_dpkg_packages/install.sh "${BUNDLE_DIR}/scripts/install-apt.sh"
+            cp ./offline_dpkg_packages/install.sh "./${local_bundle_dir}/scripts/install-apt.sh"
         else
             # Generate a basic install script if it doesn't exist (for skip case)
             info "Generating install-apt.sh (not found in offline_dpkg_packages)"
-            cat > "${BUNDLE_DIR}/scripts/install-apt.sh" << 'EOF'
+            cat > "./${local_bundle_dir}/scripts/install-apt.sh" << 'EOF'
 #!/bin/bash
 # Basic APT packages installer
 set -e
@@ -507,10 +510,10 @@ sudo dpkg -i *.deb 2>/dev/null || true
 sudo dpkg --configure -a
 echo "APT packages installed"
 EOF
-            chmod +x "${BUNDLE_DIR}/scripts/install-apt.sh"
+            chmod +x "./${local_bundle_dir}/scripts/install-apt.sh"
         fi
 
-        local deb_count=$(ls -1 "${BUNDLE_DIR}/packages/apt/"*.deb 2>/dev/null | wc -l)
+        local deb_count=$(ls -1 "./${local_bundle_dir}/packages/apt/"*.deb 2>/dev/null | wc -l)
         log "Moved $deb_count .deb packages to bundle"
 
         rm -rf ./offline_dpkg_packages
@@ -570,7 +573,7 @@ for pkg in data['system_packages']['pip']:
         fi
 
         if [[ -d "./offline_pip_packages" ]]; then
-            mv ./offline_pip_packages/* "${BUNDLE_DIR}/packages/pip/" 2>/dev/null || true
+            mv ./offline_pip_packages/* "./${local_bundle_dir}/packages/pip/" 2>/dev/null || true
             rm -rf ./offline_pip_packages
         fi
     fi
