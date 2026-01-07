@@ -1,0 +1,207 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                  K8S OFFLINE BUNDLE - QUICK START                    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ PASO 1: CREAR EL BUNDLE (Sistema con Internet)                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+  $ make build
+
+  Esto generará:
+  • bundle-output/k8s-offline-bundle-1.0.0.tar.gz  (~150-300 MB)
+  • bundle-output/k8s-offline-bundle-1.0.0.tar.gz.sha256
+  • bundle-output/k8s-offline-bundle-1.0.0.tar.gz.md5
+  • bundle-output/bundle-preparation.log
+
+  Tiempo estimado: 5-15 minutos (depende de la conexión)
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ PASO 2: VERIFICAR EL BUNDLE                                        │
+└─────────────────────────────────────────────────────────────────────┘
+
+  $ make verify
+
+  Verificará:
+  • Checksums SHA256 y MD5
+  • Estructura del bundle
+  • Integridad de paquetes .deb
+  • Scripts ejecutables
+  • Configuraciones presentes
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ PASO 3: INTEGRAR EN CUBIC                                          │
+└─────────────────────────────────────────────────────────────────────┘
+
+  Opción A - Automática:
+  ─────────────────────
+  $ CUBIC_PROJECT=~/Cubic/mi-proyecto make install-cubic
+
+  Luego en Cubic chroot:
+  $ cd /opt
+  $ ./cubic-install-bundle.sh
+
+
+  Opción B - Manual:
+  ──────────────────
+  1. Copiar el tar.gz a Cubic:
+     cp bundle-output/k8s-offline-bundle-1.0.0.tar.gz \
+        ~/Cubic/mi-proyecto/custom-root/opt/
+
+  2. En Cubic chroot:
+     cd /opt
+     tar -xzf k8s-offline-bundle-1.0.0.tar.gz
+     cd k8s-offline-bundle
+     ./install.sh
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ PASO 4: GENERAR ISO EN CUBIC                                       │
+└─────────────────────────────────────────────────────────────────────┘
+
+  1. En Cubic GUI, click en "Generate"
+  2. Esperar a que genere la ISO
+  3. La ISO estará en ~/Cubic/mi-proyecto/
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ PASO 5: PROBAR LA ISO                                              │
+└─────────────────────────────────────────────────────────────────────┘
+
+  Opción A - VM con Multipass:
+  ────────────────────────────
+  $ make test-vm
+
+  Opción B - VirtualBox/VMware:
+  ─────────────────────────────
+  1. Crear VM nueva
+  2. Montar ISO generada
+  3. Bootear e instalar
+  4. Verificar:
+     $ lsmod | grep ip_vs
+     $ sysctl net.ipv4.ip_forward
+     $ dpkg -l | grep jq
+     $ pip3 list | grep jc
+     $ swapon --show  # Debe estar vacío
+
+╔══════════════════════════════════════════════════════════════════════╗
+║                        COMANDOS ÚTILES                               ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  make help         - Ver todos los comandos disponibles
+  make build        - Crear bundle
+  make verify       - Verificar bundle
+  make show-info    - Mostrar información del bundle
+  make checksums    - Verificar solo checksums
+  make clean        - Limpiar archivos generados
+  make rebuild      - Limpiar + crear + verificar
+  make test-vm      - Probar en VM (requiere multipass)
+  make extract      - Extraer bundle para inspección
+
+╔══════════════════════════════════════════════════════════════════════╗
+║                    CONTENIDO DEL BUNDLE                              ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  📦 PAQUETES APT (~23 principales + dependencias)
+  ─────────────────────────────────────────────────
+  • Networking: network-manager, iputils-ping, tcpdump, lldpd
+  • Storage: multipath-tools, open-iscsi, nfs-common
+  • Security: iptables, nftables, ebtables, ufw
+  • K8S: ipvsadm, ethtool, ipmitool
+  • Tools: jq, vim, cron, rsyslog, sysstat, s3cmd
+
+  🐍 PAQUETES PIP
+  ───────────────
+  • jc - JSON parser para CLI
+
+  ⚙️  MÓDULOS DEL KERNEL
+  ─────────────────────
+  • ip_vs, ip_vs_rr, ip_vs_wrr, ip_vs_sh, ip_vs_wlc, ip_vs_lc
+  • nf_conntrack, nvme_tcp
+
+  🔧 CONFIGURACIONES
+  ──────────────────
+  • IP forwarding habilitado
+  • Bridge netfilter configurado
+  • Swap deshabilitado
+  • File watchers aumentados
+
+╔══════════════════════════════════════════════════════════════════════╗
+║                      SOLUCIÓN DE PROBLEMAS                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  ❌ Error: "download-apt.sh not found"
+  ────────────────────────────────────
+  Verifica que todos los scripts estén en el mismo directorio
+
+  ❌ Error: "Failed to download packages"
+  ────────────────────────────────────
+  $ sudo apt update
+  $ make build
+
+  ❌ Bundle muy grande
+  ────────────────────
+  El tamaño es normal (~150-300 MB) incluye todas las dependencias
+
+  ❌ Módulos no cargan en chroot
+  ──────────────────────────────
+  Esto es NORMAL. Los módulos se cargan al bootear la ISO final
+
+╔══════════════════════════════════════════════════════════════════════╗
+║                      DOCUMENTACIÓN                                   ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  📖 README.md      - Documentación principal (inglés)
+  📖 GUIA-USO.md    - Guía completa paso a paso (español)
+  📖 Makefile       - Referencia de comandos
+  📖 Scripts        - Todos tienen --help integrado
+
+╔══════════════════════════════════════════════════════════════════════╗
+║                      EJEMPLO COMPLETO                                ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  # Terminal 1: Crear bundle
+  $ cd /home/hector/Documents/k8s-isos
+  $ make build
+  $ make verify
+
+  # Terminal 2: Iniciar Cubic
+  $ cubic
+
+  # En Cubic: Seleccionar ISO base de Ubuntu Server
+  # Esperar a que abra el terminal chroot
+
+  # Terminal 1: Copiar bundle a Cubic
+  $ CUBIC_PROJECT=~/Cubic/k8s-iso make install-cubic
+
+  # En Cubic chroot:
+  $ cd /opt
+  $ ./cubic-install-bundle.sh
+
+  # En Cubic GUI: Click "Generate" para crear ISO
+
+  # Probar ISO
+  $ make test-vm
+  # O bootear en VirtualBox/VMware
+
+╔══════════════════════════════════════════════════════════════════════╗
+║                   PRÓXIMOS PASOS DESPUÉS DE LA ISO                   ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  1. ✅ Instalar Container Runtime (containerd/crio)
+  2. ✅ Instalar Kubernetes (kubeadm, kubelet, kubectl)
+  3. ✅ Inicializar cluster: kubeadm init
+  4. ✅ Instalar CNI (Calico/Flannel/Cilium)
+  5. ✅ Configurar workers: kubeadm join
+
+  Considera crear bundles adicionales para containerd y kubeadm
+
+╔══════════════════════════════════════════════════════════════════════╗
+║              ¿NECESITAS MÁS AYUDA?                                   ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  • Lee GUIA-USO.md para documentación detallada
+  • Revisa logs en bundle-output/bundle-preparation.log
+  • Ejecuta: make help
+
+  ¡Buena suerte con tu cluster de Kubernetes! 🚀
+
+╚══════════════════════════════════════════════════════════════════════╝

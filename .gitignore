@@ -1,0 +1,80 @@
+# K8S Bundle Project - Git Ignore
+
+# ===== Generated Directories =====
+bundle-workspace/
+bundle-output/
+bundle-inspect/
+offline_dpkg_packages/
+offline_pip_packages/
+
+# ===== Temporary Files =====
+*.log
+*.tmp
+download*.log
+bundle-preparation.log
+
+# ===== Bundle Files =====
+*.tar.gz
+*.tar.gz.sha256
+*.tar.gz.md5
+
+# ===== Installation Reports =====
+installation-report-*.txt
+
+# ===== ISO Files =====
+*.iso
+
+# ===== Cubic Workspace =====
+Cubic/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+
+# ===== OS Files =====
+.DS_Store
+Thumbs.db
+.directory
+
+# ===== Editor Files =====
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-*
+
+# ===== Backup Files =====
+*.bak
+*.backup
+*~
+
+# ===== Test Files =====
+test-output/
+test-results/
+
+# ===== Checksums (generated) =====
+*.sha256
+*.md5
+
+# ===== Keep These =====
+!README.md
+!GUIA-USO.md
+!Makefile
+!.gitignore
+
+# ===== Keep Scripts =====
+!*.sh
+
+# ===== Documentation =====
+!docs/**
+.claude/

@@ -1,0 +1,428 @@
+# ============================================================================
+# Kubernetes Version Matrix
+# ============================================================================
+# Define todas las dependencias y versiones para cada release de Kubernetes
+# ============================================================================
+
+# Formato de versión: MAJOR.MINOR.PATCH
+# Cada versión de K8s tiene dependencias específicas probadas y compatibles
+
+versions:
+  "1.30.2":
+    release_date: "2024-06-11"
+    kubernetes:
+      version: "1.30.2"
+      revision: "1"
+      components:
+        kubeadm: "1.30.2-1.1"
+        kubelet: "1.30.2-1.1"
+        kubectl: "1.30.2-1.1"
+        cri-tools: "1.30.0-1.1"
+
+    container_runtime:
+      containerd:
+        version: "1.7.18"
+        package_version: "1.7.18-1"
+      runc:
+        version: "1.1.13"
+        package_version: "1.1.13-1"
+
+    cni:
+      plugins_version: "1.5.0"
+      calico_version: "3.28.0"
+      flannel_version: "0.25.4"
+
+    container_images:
+      pause: "registry.k8s.io/pause:3.9"
+      coredns: "registry.k8s.io/coredns/coredns:v1.11.1"
+      etcd: "registry.k8s.io/etcd:3.5.12-0"
+      kube_apiserver: "registry.k8s.io/kube-apiserver:v1.30.2"
+      kube_controller_manager: "registry.k8s.io/kube-controller-manager:v1.30.2"
+      kube_scheduler: "registry.k8s.io/kube-scheduler:v1.30.2"
+      kube_proxy: "registry.k8s.io/kube-proxy:v1.30.2"
+
+    system_packages:
+      apt:
+        # Networking
+        - name: "ipvsadm"
+          version: "1:1.31*"
+        - name: "ipset"
+          version: "7.15*"
+        - name: "iptables"
+          version: "1.8*"
+        - name: "ebtables"
+          version: "2.0.11*"
+        - name: "ethtool"
+          version: ""
+        - name: "socat"
+          version: ""
+        - name: "conntrack"
+          version: ""
+        - name: "nftables"
+          version: ""
+
+        # Storage
+        - name: "nfs-common"
+          version: "1:2.6.1*"
+        - name: "open-iscsi"
+          version: ""
+        - name: "multipath-tools"
+          version: "0.8.8*"
+
+        # Monitoring & Utilities
+        - name: "jq"
+          version: "1.6*"
+        - name: "vim"
+          version: ""
+        - name: "curl"
+          version: ""
+        - name: "wget"
+          version: ""
+        - name: "gnupg2"
+          version: ""
+        - name: "software-properties-common"
+          version: ""
+        - name: "apt-transport-https"
+          version: ""
+        - name: "ca-certificates"
+          version: ""
+        - name: "lsb-release"
+          version: ""
+
+        # System tools
+        - name: "cron"
+          version: ""
+        - name: "rsyslog"
+          version: ""
+        - name: "sysstat"
+          version: ""
+        - name: "lsof"
+          version: ""
+        - name: "tcpdump"
+          version: ""
+        - name: "iputils-ping"
+          version: ""
+        - name: "net-tools"
+          version: ""
+        - name: "dnsutils"
+          version: ""
+        - name: "iproute2"
+          version: ""
+        - name: "bridge-utils"
+          version: ""
+
+        # Python
+        - name: "python3-pip"
+          version: ""
+
+      pip:
+        - name: "jc"
+          version: "latest"
+
+    kernel_modules:
+      - "overlay"
+      - "br_netfilter"
+      - "ip_vs"
+      - "ip_vs_rr"
+      - "ip_vs_wrr"
+      - "ip_vs_sh"
+      - "nf_conntrack"
+      - "nvme_tcp"
+
+    sysctl:
+      net.ipv4.ip_forward: 1
+      net.bridge.bridge-nf-call-iptables: 1
+      net.bridge.bridge-nf-call-ip6tables: 1
+      net.ipv4.conf.all.forwarding: 1
+      net.ipv6.conf.all.forwarding: 1
+      vm.swappiness: 0
+      fs.inotify.max_user_watches: 524288
+      fs.inotify.max_user_instances: 512
+
+    notes: |
+      Kubernetes 1.30.2 stable release
+      Compatible con Ubuntu 20.04, 22.04, 24.04
+      Requiere containerd 1.7.x o superior
+
+  "1.29.6":
+    release_date: "2024-06-11"
+    kubernetes:
+      version: "1.29.6"
+      revision: "1"
+      components:
+        kubeadm: "1.29.6-1.1"
+        kubelet: "1.29.6-1.1"
+        kubectl: "1.29.6-1.1"
+        cri-tools: "1.29.0-1.1"
+
+    container_runtime:
+      containerd:
+        version: "1.7.17"
+        package_version: "1.7.17-1"
+      runc:
+        version: "1.1.12"
+        package_version: "1.1.12-1"
+
+    cni:
+      plugins_version: "1.4.1"
+      calico_version: "3.27.3"
+      flannel_version: "0.25.2"
+
+    container_images:
+      pause: "registry.k8s.io/pause:3.9"
+      coredns: "registry.k8s.io/coredns/coredns:v1.11.1"
+      etcd: "registry.k8s.io/etcd:3.5.12-0"
+      kube_apiserver: "registry.k8s.io/kube-apiserver:v1.29.6"
+      kube_controller_manager: "registry.k8s.io/kube-controller-manager:v1.29.6"
+      kube_scheduler: "registry.k8s.io/kube-scheduler:v1.29.6"
+      kube_proxy: "registry.k8s.io/kube-proxy:v1.29.6"
+
+    system_packages:
+      apt:
+        # Same as 1.30.2 but could have different versions if needed
+        - name: "ipvsadm"
+          version: "1:1.31*"
+        - name: "ipset"
+          version: "7.15*"
+        - name: "iptables"
+          version: "1.8*"
+        - name: "ebtables"
+          version: "2.0.11*"
+        - name: "ethtool"
+          version: ""
+        - name: "socat"
+          version: ""
+        - name: "conntrack"
+          version: ""
+        - name: "nftables"
+          version: ""
+        - name: "nfs-common"
+          version: "1:2.6.1*"
+        - name: "open-iscsi"
+          version: ""
+        - name: "multipath-tools"
+          version: "0.8.8*"
+        - name: "jq"
+          version: "1.6*"
+        - name: "vim"
+          version: ""
+        - name: "curl"
+          version: ""
+        - name: "wget"
+          version: ""
+        - name: "gnupg2"
+          version: ""
+        - name: "software-properties-common"
+          version: ""
+        - name: "apt-transport-https"
+          version: ""
+        - name: "ca-certificates"
+          version: ""
+        - name: "lsb-release"
+          version: ""
+        - name: "cron"
+          version: ""
+        - name: "rsyslog"
+          version: ""
+        - name: "sysstat"
+          version: ""
+        - name: "lsof"
+          version: ""
+        - name: "tcpdump"
+          version: ""
+        - name: "iputils-ping"
+          version: ""
+        - name: "net-tools"
+          version: ""
+        - name: "dnsutils"
+          version: ""
+        - name: "iproute2"
+          version: ""
+        - name: "bridge-utils"
+          version: ""
+        - name: "python3-pip"
+          version: ""
+
+      pip:
+        - name: "jc"
+          version: "latest"
+
+    kernel_modules:
+      - "overlay"
+      - "br_netfilter"
+      - "ip_vs"
+      - "ip_vs_rr"
+      - "ip_vs_wrr"
+      - "ip_vs_sh"
+      - "nf_conntrack"
+      - "nvme_tcp"
+
+    sysctl:
+      net.ipv4.ip_forward: 1
+      net.bridge.bridge-nf-call-iptables: 1
+      net.bridge.bridge-nf-call-ip6tables: 1
+      net.ipv4.conf.all.forwarding: 1
+      net.ipv6.conf.all.forwarding: 1
+      vm.swappiness: 0
+      fs.inotify.max_user_watches: 524288
+      fs.inotify.max_user_instances: 512
+
+    notes: |
+      Kubernetes 1.29.6 LTS release
+      Extended support until 2025-02
+
+  "1.28.11":
+    release_date: "2024-06-11"
+    kubernetes:
+      version: "1.28.11"
+      revision: "1"
+      components:
+        kubeadm: "1.28.11-1.1"
+        kubelet: "1.28.11-1.1"
+        kubectl: "1.28.11-1.1"
+        cri-tools: "1.28.0-1.1"
+
+    container_runtime:
+      containerd:
+        version: "1.7.16"
+        package_version: "1.7.16-1"
+      runc:
+        version: "1.1.12"
+        package_version: "1.1.12-1"
+
+    cni:
+      plugins_version: "1.4.0"
+      calico_version: "3.27.0"
+      flannel_version: "0.24.4"
+
+    container_images:
+      pause: "registry.k8s.io/pause:3.9"
+      coredns: "registry.k8s.io/coredns/coredns:v1.11.1"
+      etcd: "registry.k8s.io/etcd:3.5.12-0"
+      kube_apiserver: "registry.k8s.io/kube-apiserver:v1.28.11"
+      kube_controller_manager: "registry.k8s.io/kube-controller-manager:v1.28.11"
+      kube_scheduler: "registry.k8s.io/kube-scheduler:v1.28.11"
+      kube_proxy: "registry.k8s.io/kube-proxy:v1.28.11"
+
+    system_packages:
+      apt:
+        - name: "ipvsadm"
+          version: "1:1.31*"
+        - name: "ipset"
+          version: "7.15*"
+        - name: "iptables"
+          version: "1.8*"
+        - name: "ebtables"
+          version: "2.0.11*"
+        - name: "ethtool"
+          version: ""
+        - name: "socat"
+          version: ""
+        - name: "conntrack"
+          version: ""
+        - name: "nftables"
+          version: ""
+        - name: "nfs-common"
+          version: "1:2.6.1*"
+        - name: "open-iscsi"
+          version: ""
+        - name: "multipath-tools"
+          version: "0.8.8*"
+        - name: "jq"
+          version: "1.6*"
+        - name: "vim"
+          version: ""
+        - name: "curl"
+          version: ""
+        - name: "wget"
+          version: ""
+        - name: "gnupg2"
+          version: ""
+        - name: "software-properties-common"
+          version: ""
+        - name: "apt-transport-https"
+          version: ""
+        - name: "ca-certificates"
+          version: ""
+        - name: "lsb-release"
+          version: ""
+        - name: "cron"
+          version: ""
+        - name: "rsyslog"
+          version: ""
+        - name: "sysstat"
+          version: ""
+        - name: "lsof"
+          version: ""
+        - name: "tcpdump"
+          version: ""
+        - name: "iputils-ping"
+          version: ""
+        - name: "net-tools"
+          version: ""
+        - name: "dnsutils"
+          version: ""
+        - name: "iproute2"
+          version: ""
+        - name: "bridge-utils"
+          version: ""
+        - name: "python3-pip"
+          version: ""
+
+      pip:
+        - name: "jc"
+          version: "latest"
+
+    kernel_modules:
+      - "overlay"
+      - "br_netfilter"
+      - "ip_vs"
+      - "ip_vs_rr"
+      - "ip_vs_wrr"
+      - "ip_vs_sh"
+      - "nf_conntrack"
+      - "nvme_tcp"
+
+    sysctl:
+      net.ipv4.ip_forward: 1
+      net.bridge.bridge-nf-call-iptables: 1
+      net.bridge.bridge-nf-call-ip6tables: 1
+      net.ipv4.conf.all.forwarding: 1
+      net.ipv6.conf.all.forwarding: 1
+      vm.swappiness: 0
+      fs.inotify.max_user_watches: 524288
+      fs.inotify.max_user_instances: 512
+
+    notes: |
+      Kubernetes 1.28.11 stable release
+      Compatible con Ubuntu 20.04, 22.04
+
+# Default version if not specified
+default_version: "1.30.2"
+
+# Ubuntu distribution compatibility
+ubuntu_compatibility:
+  "20.04":
+    codename: "focal"
+    supported_k8s: ["1.28.11", "1.29.6", "1.30.2"]
+    arch: ["amd64", "arm64"]
+
+  "22.04":
+    codename: "jammy"
+    supported_k8s: ["1.28.11", "1.29.6", "1.30.2"]
+    arch: ["amd64", "arm64"]
+
+  "24.04":
+    codename: "noble"
+    supported_k8s: ["1.29.6", "1.30.2"]
+    arch: ["amd64", "arm64"]
+
+# Architecture specific binaries
+architectures:
+  amd64:
+    golang_arch: "amd64"
+    debian_arch: "amd64"
+
+  arm64:
+    golang_arch: "arm64"
+    debian_arch: "arm64"
