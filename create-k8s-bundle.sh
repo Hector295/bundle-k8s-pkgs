@@ -511,16 +511,32 @@ set -e
 # Make installation completely non-interactive
 export DEBIAN_FRONTEND=noninteractive
 export DEBCONF_NONINTERACTIVE_SEEN=true
+export DEBIAN_PRIORITY=critical
+export APT_LISTCHANGES_FRONTEND=none
 
 cd "$(dirname "$0")/../packages/apt"
 
 echo "Installing APT packages (non-interactive mode)..."
 
-# Install with non-interactive flags
-sudo -E dpkg -i --force-confold --force-confdef *.deb 2>/dev/null || true
+# Install with aggressive non-interactive flags
+# Keep old config files without asking
+sudo -E dpkg -i \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    -o Dpkg::Options::="--force-overwrite" \
+    *.deb 2>/dev/null || true
 
 # Configure any pending packages
-sudo -E dpkg --configure -a --force-confold --force-confdef
+sudo -E dpkg --configure -a \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    2>/dev/null || true
+
+# Fix any broken dependencies
+sudo -E apt-get install -f -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    2>/dev/null || true
 
 echo "APT packages installed"
 EOF
@@ -844,9 +860,11 @@ section "Step 1/9: Installing System Packages"
 
 if [[ -f "$SCRIPT_DIR/scripts/install-apt.sh" ]] && [[ -d "$SCRIPT_DIR/packages/apt" ]]; then
     cd "$SCRIPT_DIR/packages/apt"
-    # Set non-interactive environment for dpkg
+    # Set aggressive non-interactive environment for dpkg
     export DEBIAN_FRONTEND=noninteractive
     export DEBCONF_NONINTERACTIVE_SEEN=true
+    export DEBIAN_PRIORITY=critical
+    export APT_LISTCHANGES_FRONTEND=none
     bash "$SCRIPT_DIR/scripts/install-apt.sh"
     log "System packages installed"
 else
