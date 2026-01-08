@@ -230,7 +230,7 @@ info() {
     echo -e "${BLUE}[INFO] $1${NC}"
 }
 
-cd "$(dirname "$0")"
+#cd "$(dirname "$0")"
 
 # Check .deb files
 deb_count=$(ls -1 *.deb 2>/dev/null | wc -l || echo "0")

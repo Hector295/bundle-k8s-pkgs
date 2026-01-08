@@ -505,12 +505,23 @@ for pkg in data['system_packages']['apt']:
             info "Generating install-apt.sh (not found in offline_dpkg_packages)"
             cat > "./${local_bundle_dir}/scripts/install-apt.sh" << 'EOF'
 #!/bin/bash
-# Basic APT packages installer
+# Non-interactive APT packages installer
 set -e
+
+# Make installation completely non-interactive
+export DEBIAN_FRONTEND=noninteractive
+export DEBCONF_NONINTERACTIVE_SEEN=true
+
 cd "$(dirname "$0")/../packages/apt"
-echo "Installing APT packages..."
-sudo dpkg -i *.deb 2>/dev/null || true
-sudo dpkg --configure -a
+
+echo "Installing APT packages (non-interactive mode)..."
+
+# Install with non-interactive flags
+sudo -E dpkg -i --force-confold --force-confdef *.deb 2>/dev/null || true
+
+# Configure any pending packages
+sudo -E dpkg --configure -a --force-confold --force-confdef
+
 echo "APT packages installed"
 EOF
             chmod +x "./${local_bundle_dir}/scripts/install-apt.sh"
@@ -576,7 +587,52 @@ for pkg in data['system_packages']['pip']:
         fi
 
         if [[ -d "./offline_pip_packages" ]]; then
-            mv ./offline_pip_packages/* "./${local_bundle_dir}/packages/pip/" 2>/dev/null || true
+            mv ./offline_pip_packages/*.whl "./${local_bundle_dir}/packages/pip/" 2>/dev/null || true
+            mv ./offline_pip_packages/*.tar.gz "./${local_bundle_dir}/packages/pip/" 2>/dev/null || true
+            mv ./offline_pip_packages/*.zip "./${local_bundle_dir}/packages/pip/" 2>/dev/null || true
+
+            # Copy install script if exists
+            if [[ -f "./offline_pip_packages/install_offline.sh" ]]; then
+                cp ./offline_pip_packages/install_offline.sh "./${local_bundle_dir}/scripts/install-pip.sh"
+            else
+                # Generate a basic install script if it doesn't exist
+                info "Generating install-pip.sh (not found in offline_pip_packages)"
+                cat > "./${local_bundle_dir}/scripts/install-pip.sh" << 'EOF'
+#!/bin/bash
+# Basic PIP packages installer
+set -e
+cd "$(dirname "$0")/../packages/pip"
+echo "Installing PIP packages..."
+
+# Detect pip command
+if command -v pip3 &>/dev/null; then
+    PIP_CMD="pip3"
+elif command -v pip &>/dev/null; then
+    PIP_CMD="pip"
+else
+    echo "ERROR: pip not found"
+    exit 1
+fi
+
+echo "Using pip: $PIP_CMD"
+$PIP_CMD install --no-index --find-links . *.whl *.tar.gz *.zip 2>/dev/null || {
+    echo "Bulk install failed, trying individual..."
+    for file in *.whl *.tar.gz *.zip; do
+        if [[ -f "$file" ]]; then
+            echo "Installing: $file"
+            $PIP_CMD install --no-index --find-links . "$file" || echo "Failed: $file"
+        fi
+    done
+}
+
+echo "PIP packages installed"
+EOF
+                chmod +x "./${local_bundle_dir}/scripts/install-pip.sh"
+            fi
+
+            local pip_count=$(ls -1 "./${local_bundle_dir}/packages/pip/" 2>/dev/null | wc -l)
+            log "Moved $pip_count pip packages to bundle"
+
             rm -rf ./offline_pip_packages
         fi
     fi
@@ -614,6 +670,106 @@ with open('${BUNDLE_DIR}/config/k8s-sysctl.conf', 'w') as f:
 "
 
     log "Sysctl config created"
+
+    # Create load-kernel-modules.sh script
+    cat > "${BUNDLE_DIR}/scripts/load-kernel-modules.sh" << 'EOF'
+#!/bin/bash
+# Load Kubernetes required kernel modules
+
+set -e
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log() { echo -e "${GREEN}[✓] $1${NC}"; }
+info() { echo -e "${BLUE}[ℹ] $1${NC}"; }
+error() { echo -e "${RED}[✗] ERROR: $1${NC}"; exit 1; }
+
+MODULES_CONF="/etc/modules-load.d/k8s-modules.conf"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check root
+[[ $EUID -ne 0 ]] && error "This script must be run as root"
+
+info "Loading Kubernetes kernel modules..."
+
+# Copy modules configuration
+if [[ -f "$SCRIPT_DIR/../config/k8s-modules.conf" ]]; then
+    cp "$SCRIPT_DIR/../config/k8s-modules.conf" "$MODULES_CONF"
+    log "Modules configuration installed to $MODULES_CONF"
+else
+    error "k8s-modules.conf not found"
+fi
+
+# Load modules immediately
+while IFS= read -r module; do
+    # Skip comments and empty lines
+    [[ "$module" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$module" ]] && continue
+
+    module=$(echo "$module" | xargs) # trim whitespace
+
+    if ! lsmod | grep -q "^${module}"; then
+        info "Loading module: $module"
+        modprobe "$module" 2>/dev/null || echo "  Warning: Failed to load $module (may not be available)"
+    else
+        echo "  ✓ $module (already loaded)"
+    fi
+done < "$MODULES_CONF"
+
+log "Kernel modules configured"
+EOF
+    chmod +x "${BUNDLE_DIR}/scripts/load-kernel-modules.sh"
+    log "load-kernel-modules.sh script created"
+
+    # Create apply-sysctl.sh script
+    cat > "${BUNDLE_DIR}/scripts/apply-sysctl.sh" << 'EOF'
+#!/bin/bash
+# Apply Kubernetes sysctl settings
+
+set -e
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log() { echo -e "${GREEN}[✓] $1${NC}"; }
+info() { echo -e "${BLUE}[ℹ] $1${NC}"; }
+error() { echo -e "${RED}[✗] ERROR: $1${NC}"; exit 1; }
+
+SYSCTL_CONF="/etc/sysctl.d/99-k8s.conf"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check root
+[[ $EUID -ne 0 ]] && error "This script must be run as root"
+
+info "Applying Kubernetes sysctl settings..."
+
+# Copy sysctl configuration
+if [[ -f "$SCRIPT_DIR/../config/k8s-sysctl.conf" ]]; then
+    cp "$SCRIPT_DIR/../config/k8s-sysctl.conf" "$SYSCTL_CONF"
+    log "Sysctl configuration installed to $SYSCTL_CONF"
+else
+    error "k8s-sysctl.conf not found"
+fi
+
+# Apply settings
+sysctl --system >/dev/null
+
+# Verify key settings
+info "Verifying key settings:"
+for setting in net.ipv4.ip_forward net.bridge.bridge-nf-call-iptables; do
+    value=$(sysctl -n "$setting" 2>/dev/null || echo "N/A")
+    echo "  $setting = $value"
+done
+
+log "Sysctl settings applied"
+EOF
+    chmod +x "${BUNDLE_DIR}/scripts/apply-sysctl.sh"
+    log "apply-sysctl.sh script created"
 
     # Containerd config
     cat > "${BUNDLE_DIR}/config/containerd-config.toml" << 'EOF'
@@ -684,19 +840,33 @@ echo ""
 
 # ========================= SYSTEM PACKAGES =========================
 
-section "Step 1/8: Installing System Packages"
+section "Step 1/9: Installing System Packages"
 
 if [[ -f "$SCRIPT_DIR/scripts/install-apt.sh" ]] && [[ -d "$SCRIPT_DIR/packages/apt" ]]; then
     cd "$SCRIPT_DIR/packages/apt"
+    # Set non-interactive environment for dpkg
+    export DEBIAN_FRONTEND=noninteractive
+    export DEBCONF_NONINTERACTIVE_SEEN=true
     bash "$SCRIPT_DIR/scripts/install-apt.sh"
     log "System packages installed"
 else
     warning "System packages not found, skipping..."
 fi
 
+# ========================= PIP PACKAGES =========================
+
+section "Step 2/9: Installing Python Packages"
+
+if [[ -f "$SCRIPT_DIR/scripts/install-pip.sh" ]] && [[ -d "$SCRIPT_DIR/packages/pip" ]]; then
+    bash "$SCRIPT_DIR/scripts/install-pip.sh"
+    log "Python packages installed"
+else
+    warning "Python packages not found, skipping..."
+fi
+
 # ========================= KERNEL MODULES =========================
 
-section "Step 2/8: Configuring Kernel Modules"
+section "Step 3/9: Configuring Kernel Modules"
 
 if [[ -f "$SCRIPT_DIR/config/k8s-modules.conf" ]]; then
     cp "$SCRIPT_DIR/config/k8s-modules.conf" /etc/modules-load.d/
@@ -713,7 +883,7 @@ fi
 
 # ========================= SYSCTL =========================
 
-section "Step 3/8: Applying Sysctl Settings"
+section "Step 4/9: Applying Sysctl Settings"
 
 if [[ -f "$SCRIPT_DIR/config/k8s-sysctl.conf" ]]; then
     cp "$SCRIPT_DIR/config/k8s-sysctl.conf" /etc/sysctl.d/99-k8s.conf
@@ -723,7 +893,7 @@ fi
 
 # ========================= DISABLE SWAP =========================
 
-section "Step 4/8: Disabling Swap"
+section "Step 5/9: Disabling Swap"
 
 swapoff -a
 sed -i '/ swap / s/^/#/' /etc/fstab
@@ -731,7 +901,7 @@ log "Swap disabled"
 
 # ========================= CONTAINERD =========================
 
-section "Step 5/8: Installing Containerd"
+section "Step 6/9: Installing Containerd"
 
 if [[ -d "$SCRIPT_DIR/binaries/containerd" ]]; then
     cd "$SCRIPT_DIR/binaries/containerd"
@@ -766,7 +936,7 @@ fi
 
 # ========================= CNI PLUGINS =========================
 
-section "Step 6/8: Installing CNI Plugins"
+section "Step 7/9: Installing CNI Plugins"
 
 if [[ -d "$SCRIPT_DIR/binaries/cni" ]]; then
     mkdir -p /opt/cni/bin
@@ -777,7 +947,7 @@ fi
 
 # ========================= KUBERNETES BINARIES =========================
 
-section "Step 7/8: Installing Kubernetes Binaries"
+section "Step 8/9: Installing Kubernetes Binaries"
 
 if [[ -d "$SCRIPT_DIR/binaries/kubernetes" ]]; then
     cd "$SCRIPT_DIR/binaries/kubernetes"
@@ -803,7 +973,7 @@ fi
 
 # ========================= CONTAINER IMAGES =========================
 
-section "Step 8/8: Loading Container Images"
+section "Step 9/9: Loading Container Images"
 
 if [[ -f "$SCRIPT_DIR/images/images.txt" ]]; then
     info "Container images will be pulled by kubeadm"
