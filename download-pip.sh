@@ -313,8 +313,9 @@ log() { echo -e "${GREEN}[INSTALL] $1${NC}"; }
 error() { echo -e "${RED}[ERROR] $1${NC}"; }
 warning() { echo -e "${YELLOW}[WARNING] $1${NC}"; }
 
-#cd "$(dirname "$0")"
-
+cd "$(dirname "$0")"
+cd ..
+cd packages/pip/
 # Detect pip
 if command -v pip3 &>/dev/null; then
     PIP_CMD="pip3"
