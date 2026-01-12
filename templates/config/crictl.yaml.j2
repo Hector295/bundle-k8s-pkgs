@@ -1,0 +1,23 @@
+# crictl Configuration
+# Generated from template - DO NOT EDIT DIRECTLY
+# Kubernetes Version: {{ k8s_version }}
+
+# Container Runtime Interface endpoints
+runtime-endpoint: {{ runtime_endpoint }}
+image-endpoint: {{ image_endpoint }}
+
+# Timeout for operations (in seconds)
+timeout: {{ timeout }}
+
+# Debug mode (set to true for verbose output)
+debug: false
+
+{# Optional settings - uncomment to enable
+
+# Pull image on create (forces fresh image pulls)
+# pull-image-on-create: true
+
+# Disable pull progress output
+# disable-pull-on-run: false
+
+#}

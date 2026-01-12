@@ -1,0 +1,48 @@
+#!/bin/bash
+# Load Kubernetes required kernel modules
+# Generated from template - DO NOT EDIT DIRECTLY
+
+set -e
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log() { echo -e "${GREEN}[✓] $1${NC}"; }
+info() { echo -e "${BLUE}[ℹ] $1${NC}"; }
+error() { echo -e "${RED}[✗] ERROR: $1${NC}"; exit 1; }
+
+MODULES_CONF="/etc/modules-load.d/k8s-modules.conf"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check root privileges
+[[ $EUID -ne 0 ]] && error "This script must be run as root"
+
+info "Loading Kubernetes kernel modules..."
+
+# Copy modules configuration
+if [[ -f "$SCRIPT_DIR/../config/k8s-modules.conf" ]]; then
+    cp "$SCRIPT_DIR/../config/k8s-modules.conf" "$MODULES_CONF"
+    log "Modules configuration installed to $MODULES_CONF"
+else
+    error "k8s-modules.conf not found"
+fi
+
+# Load modules immediately
+while IFS= read -r module; do
+    # Skip comments and empty lines
+    [[ "$module" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$module" ]] && continue
+
+    module=$(echo "$module" | xargs)  # trim whitespace
+
+    if ! lsmod | grep -q "^${module}"; then
+        info "Loading module: $module"
+        modprobe "$module" 2>/dev/null || echo "  Warning: Failed to load $module (may not be available)"
+    else
+        echo "  ✓ $module (already loaded)"
+    fi
+done < "$MODULES_CONF"
+
+log "Kernel modules configured and loaded"

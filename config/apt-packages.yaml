@@ -1,0 +1,80 @@
+# APT System Packages
+# Packages required for Kubernetes worker nodes
+#
+# Format:
+#   - name: "package-name"
+#     version: "1.2.3*"  # Optional, use "" for latest
+#
+# Edit this file to add/remove packages, then rebuild: make build
+
+# Networking
+- name: "ipvsadm"
+  version: "1:1.31*"
+- name: "ipset"
+  version: "7.15*"
+- name: "iptables"
+  version: "1.8*"
+- name: "ebtables"
+  version: "2.0.11*"
+- name: "ethtool"
+  version: ""
+- name: "socat"
+  version: ""
+- name: "conntrack"
+  version: ""
+- name: "nftables"
+  version: ""
+
+# Storage
+- name: "nfs-common"
+  version: "1:2.6.1*"
+- name: "open-iscsi"
+  version: ""
+- name: "multipath-tools"
+  version: "0.8.8*"
+
+# Utilities
+- name: "jq"
+  version: "1.6*"
+- name: "vim"
+  version: ""
+- name: "curl"
+  version: ""
+- name: "wget"
+  version: ""
+- name: "gnupg2"
+  version: ""
+- name: "software-properties-common"
+  version: ""
+- name: "apt-transport-https"
+  version: ""
+- name: "ca-certificates"
+  version: ""
+- name: "lsb-release"
+  version: ""
+
+# System tools
+- name: "cron"
+  version: ""
+- name: "rsyslog"
+  version: ""
+- name: "sysstat"
+  version: ""
+- name: "lsof"
+  version: ""
+- name: "tcpdump"
+  version: ""
+- name: "iputils-ping"
+  version: ""
+- name: "net-tools"
+  version: ""
+- name: "dnsutils"
+  version: ""
+- name: "iproute2"
+  version: ""
+- name: "bridge-utils"
+  version: ""
+
+# Python
+- name: "python3-pip"
+  version: ""

@@ -1,0 +1,47 @@
+# Containerd Configuration for Kubernetes
+# Generated from template - DO NOT EDIT DIRECTLY
+# Kubernetes Version: {{ k8s_version }}
+# Containerd Version: {{ containerd_version }}
+
+version = 2
+
+# Import additional configurations from conf.d directory
+imports = ["/etc/containerd/certs.d/*.toml"]
+
+[plugins]
+  [plugins."io.containerd.grpc.v1.cri"]
+    # Sandbox (pause) image from k8s-versions.yaml
+    sandbox_image = "{{ pause_image }}"
+
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    # Registry configuration directory for mirrors and authentication
+    config_path = "/etc/containerd/certs.d"
+
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+    runtime_type = "io.containerd.runc.v2"
+
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+    # Use systemd cgroup driver (required for Kubernetes)
+    SystemdCgroup = true
+
+{# Optional: Uncomment to enable debug logging
+[debug]
+  level = "debug"
+#}
+
+{# Optional: Custom registry mirrors - Edit as needed
+# Example: Private registry mirror
+[plugins."io.containerd.grpc.v1.cri".registry.mirrors."myregistry.local"]
+  endpoint = ["https://myregistry.local:5000"]
+
+# Example: Docker Hub mirror
+[plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+  endpoint = ["https://registry-1.docker.io"]
+#}
+
+{# Optional: Registry authentication - Edit as needed
+# Example: Private registry with auth
+[plugins."io.containerd.grpc.v1.cri".registry.configs."myregistry.local".auth]
+  username = "user"
+  password = "pass"
+#}

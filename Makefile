@@ -1,4 +1,4 @@
-.PHONY: help build-1.30 build-1.29 build-1.28 verify clean list-versions test-install
+.PHONY: help build build-1.30 build-1.29 build-1.28 verify clean list-versions test-install check-prereqs validate-templates
 
 # Default K8S version
 K8S_VERSION ?= 1.30.2
@@ -30,6 +30,10 @@ help:
 	@echo "  make show-info           - Show bundle information"
 	@echo "  make test-install        - Test installation in Docker"
 	@echo ""
+	@echo "Development:"
+	@echo "  make check-prereqs       - Check system prerequisites"
+	@echo "  make validate-templates  - Validate Jinja2 template syntax"
+	@echo ""
 	@echo "Environment variables:"
 	@echo "  K8S_VERSION    = $(K8S_VERSION)"
 	@echo "  UBUNTU_VERSION = $(UBUNTU_VERSION)"
@@ -49,7 +53,7 @@ help:
 # Build with default or specified version
 build:
 	@echo "Building Kubernetes $(K8S_VERSION) bundle..."
-	./create-k8s-bundle.sh $(K8S_VERSION) $(UBUNTU_VERSION) $(ARCH)
+	cd scripts && ./create-k8s-bundle.sh $(K8S_VERSION) $(UBUNTU_VERSION) $(ARCH)
 
 # Quick build targets for common versions
 build-1.30:
@@ -124,11 +128,11 @@ extract:
 
 # List available versions
 list-versions:
-	@./list-k8s-versions.py
+	@./scripts/list-k8s-versions.py
 
 # Show version matrix
 show-matrix:
-	@./list-k8s-versions.py --matrix
+	@./scripts/list-k8s-versions.py --matrix
 
 # Test installation in Docker
 test-install:
@@ -173,12 +177,42 @@ check-prereqs:
 	@echo "Checking prerequisites..."
 	@command -v python3 >/dev/null || { echo "✗ python3 not found"; exit 1; }
 	@python3 -c "import yaml" 2>/dev/null || { echo "✗ python3-yaml not found"; exit 1; }
+	@python3 -c "import jinja2" 2>/dev/null || { echo "✗ python3-jinja2 not found (install: sudo apt-get install python3-jinja2)"; exit 1; }
 	@command -v curl >/dev/null || { echo "✗ curl not found"; exit 1; }
 	@command -v wget >/dev/null || { echo "✗ wget not found"; exit 1; }
 	@test -f k8s-versions.yaml || { echo "✗ k8s-versions.yaml not found"; exit 1; }
-	@test -f download-apt.sh || { echo "✗ download-apt.sh not found"; exit 1; }
-	@test -f download-pip.sh || { echo "✗ download-pip.sh not found"; exit 1; }
+	@test -f scripts/download-apt.sh || { echo "✗ scripts/download-apt.sh not found"; exit 1; }
+	@test -f scripts/download-pip.sh || { echo "✗ scripts/download-pip.sh not found"; exit 1; }
 	@echo "✓ All prerequisites met"
+
+# Validate templates
+validate-templates:
+	@echo "Validating Jinja2 templates..."
+	@python3 << 'VALIDATE_PY'
+	import jinja2
+	import sys
+	env = jinja2.Environment(loader=jinja2.FileSystemLoader('.'))
+	templates = [
+	    'templates/config/containerd-config.toml.j2',
+	    'templates/config/crictl.yaml.j2',
+	    'templates/scripts/load-kernel-modules.sh.j2',
+	    'templates/scripts/apply-sysctl.sh.j2',
+	    'templates/install/install-k8s.sh.j2'
+	]
+	errors = []
+	for tpl in templates:
+	    try:
+	        env.get_template(tpl)
+	        print(f'✓ {tpl}')
+	    except Exception as e:
+	        errors.append(f'✗ {tpl}: {e}')
+	if errors:
+	    print('\n'.join(errors))
+	    sys.exit(1)
+	else:
+	    print('✓ All templates valid')
+	VALIDATE_PY
+	@echo ""
 
 # Build all versions
 build-all:

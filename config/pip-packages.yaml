@@ -1,0 +1,11 @@
+# PIP Python Packages
+# Python packages installed via pip
+#
+# Format:
+#   - name: "package-name"
+#     version: "1.2.3"  # Optional, use "latest" or "" for latest version
+#
+# Edit this file to add/remove packages, then rebuild: make build
+
+- name: "jc"
+  version: "latest"

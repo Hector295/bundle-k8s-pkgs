@@ -1,0 +1,22 @@
+# Sysctl Settings
+# Kernel parameters for Kubernetes
+# Applied to /etc/sysctl.d/99-k8s.conf
+#
+# Format:
+#   parameter.name: value
+#
+# Edit this file to add/remove settings, then rebuild: make build
+
+# Network
+net.ipv4.ip_forward: 1
+net.bridge.bridge-nf-call-iptables: 1
+net.bridge.bridge-nf-call-ip6tables: 1
+net.ipv4.conf.all.forwarding: 1
+net.ipv6.conf.all.forwarding: 1
+
+# Memory
+vm.swappiness: 0
+
+# Filesystem
+fs.inotify.max_user_watches: 524288
+fs.inotify.max_user_instances: 512

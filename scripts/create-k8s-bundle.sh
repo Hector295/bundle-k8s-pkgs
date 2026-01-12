@@ -12,7 +12,7 @@ set -o pipefail
 
 # ========================= CONFIGURATION =========================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSIONS_FILE="${SCRIPT_DIR}/k8s-versions.yaml"
 
 # Default values
@@ -116,6 +116,134 @@ except Exception as e:
 EOF
 }
 
+# ========================= LOAD SYSTEM CONFIGURATION =========================
+
+load_system_config() {
+    # Load system configuration from config/ directory
+    # These are separate from K8s versions to allow easy customization
+
+    # Load APT packages
+    if [[ ! -f "${SCRIPT_DIR}/config/apt-packages.yaml" ]]; then
+        error "config/apt-packages.yaml not found"
+    fi
+
+    # Load PIP packages
+    if [[ ! -f "${SCRIPT_DIR}/config/pip-packages.yaml" ]]; then
+        error "config/pip-packages.yaml not found"
+    fi
+
+    # Load kernel modules
+    if [[ ! -f "${SCRIPT_DIR}/config/kernel-modules.yaml" ]]; then
+        error "config/kernel-modules.yaml not found"
+    fi
+
+    # Load sysctl settings
+    if [[ ! -f "${SCRIPT_DIR}/config/sysctl-settings.yaml" ]]; then
+        error "config/sysctl-settings.yaml not found"
+    fi
+
+    log "System configuration files loaded from config/"
+}
+
+# ========================= TEMPLATE VALIDATION =========================
+
+validate_templates() {
+    local templates=(
+        "templates/config/containerd-config.toml.j2"
+        "templates/config/crictl.yaml.j2"
+        "templates/scripts/load-kernel-modules.sh.j2"
+        "templates/scripts/apply-sysctl.sh.j2"
+        "templates/install/install-k8s.sh.j2"
+    )
+
+    local missing=()
+    for tpl in "${templates[@]}"; do
+        if [[ ! -f "${SCRIPT_DIR}/$tpl" ]]; then
+            missing+=("$tpl")
+        fi
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        error "Required templates missing:\n$(printf '  - %s\n' "${missing[@]}")"
+    fi
+
+    log "All templates validated"
+}
+
+# ========================= TEMPLATE PROCESSING =========================
+
+process_template() {
+    local template_file="$1"
+    local output_file="$2"
+
+    # Extract variables from VERSION_DATA
+    local k8s_ver=$(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['kubernetes']['version'])")
+    local pause_image=$(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['container_images']['pause'])")
+    local containerd_ver=$(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['container_runtime']['containerd']['version'])")
+    local runc_ver=$(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['container_runtime']['runc']['version'])")
+    local cni_ver=$(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['cni']['plugins_version'])")
+
+    # Process with Jinja2
+    python3 << EOF
+import jinja2
+import json
+import sys
+
+# Load template
+template_loader = jinja2.FileSystemLoader(searchpath='${SCRIPT_DIR}')
+template_env = jinja2.Environment(
+    loader=template_loader,
+    trim_blocks=True,
+    lstrip_blocks=True,
+    keep_trailing_newline=True
+)
+
+try:
+    template = template_env.get_template('${template_file}')
+except jinja2.exceptions.TemplateNotFound as e:
+    print(f"ERROR: Template not found: ${template_file}", file=sys.stderr)
+    sys.exit(1)
+
+# Load full VERSION_DATA for advanced templates
+version_data = json.loads('''$VERSION_DATA''')
+
+# Template context variables
+context = {
+    'k8s_version': '${k8s_ver}',
+    'pause_image': '${pause_image}',
+    'containerd_version': '${containerd_ver}',
+    'runc_version': '${runc_ver}',
+    'cni_version': '${cni_ver}',
+    'runtime_endpoint': 'unix:///var/run/containerd/containerd.sock',
+    'image_endpoint': 'unix:///var/run/containerd/containerd.sock',
+    'timeout': 30,
+    'arch': '${ARCH}',
+    'ubuntu_version': '${UBUNTU_VERSION}',
+    'cni_provider': '${CNI_PROVIDER}',
+    'version_data': version_data  # Full access to YAML data
+}
+
+# Render template
+try:
+    output = template.render(context)
+except Exception as e:
+    print(f"ERROR rendering template: {e}", file=sys.stderr)
+    sys.exit(1)
+
+# Write output
+try:
+    with open('${output_file}', 'w') as f:
+        f.write(output)
+except Exception as e:
+    print(f"ERROR writing output file: {e}", file=sys.stderr)
+    sys.exit(1)
+EOF
+
+    if [[ $? -ne 0 ]]; then
+        error "Failed to process template: ${template_file}"
+    fi
+}
+
 # ========================= PREREQUISITES =========================
 
 check_prerequisites() {
@@ -147,18 +275,24 @@ check_prerequisites() {
         sudo apt-get install -y python3-yaml &>/dev/null || missing+=("python3-yaml (install failed)")
     fi
 
+    # Check Python Jinja2
+    if ! python3 -c "import jinja2" 2>/dev/null; then
+        error "python3-jinja2 is required. Install with: sudo apt-get install python3-jinja2"
+    fi
+    log "Jinja2 available"
+
     # Check versions file
     if [[ ! -f "$VERSIONS_FILE" ]]; then
         missing+=("$VERSIONS_FILE")
     fi
 
-    # Check download scripts
-    if [[ ! -f "${SCRIPT_DIR}/download-apt.sh" ]]; then
-        missing+=("download-apt.sh")
+    # Check download scripts (now in scripts/ subdirectory)
+    if [[ ! -f "${SCRIPT_DIR}/scripts/download-apt.sh" ]]; then
+        missing+=("scripts/download-apt.sh")
     fi
 
-    if [[ ! -f "${SCRIPT_DIR}/download-pip.sh" ]]; then
-        missing+=("download-pip.sh")
+    if [[ ! -f "${SCRIPT_DIR}/scripts/download-pip.sh" ]]; then
+        missing+=("scripts/download-pip.sh")
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
@@ -166,6 +300,9 @@ check_prerequisites() {
     fi
 
     log "All prerequisites met"
+
+    # Validate templates exist
+    validate_templates
 }
 
 # ========================= VERSION VALIDATION =========================
@@ -446,18 +583,22 @@ for img in data['container_images'].values():
 download_system_packages() {
     section "Downloading System Packages"
 
-    # Extract package names and versions from VERSION_DATA
-    local apt_packages=($(echo "$VERSION_DATA" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for pkg in data['system_packages']['apt']:
+    # Extract package names and versions from config/apt-packages.yaml
+    local apt_packages=($(python3 << EOF
+import yaml
+
+with open('${SCRIPT_DIR}/config/apt-packages.yaml', 'r') as f:
+    packages = yaml.safe_load(f)
+
+for pkg in packages:
     name = pkg['name']
-    version = pkg['version']
+    version = pkg.get('version', '')
     if version:
         print(f'{name}={version}')
     else:
         print(name)
-"))
+EOF
+))
 
     info "APT packages to download: ${#apt_packages[@]}"
 
@@ -497,7 +638,7 @@ for pkg in data['system_packages']['apt']:
 
     # Download only if not skipped
     if [[ "$skip_download" == "false" ]]; then
-        cp "${SCRIPT_DIR}/download-apt.sh" .
+        cp "${SCRIPT_DIR}/scripts/download-apt.sh" .
         chmod +x download-apt.sh
 
         progress "Executing download-apt.sh..."
@@ -564,13 +705,17 @@ EOF
         rm -rf ./offline_dpkg_packages
     fi
 
-    # Download PIP packages
-    local pip_packages=($(echo "$VERSION_DATA" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for pkg in data['system_packages']['pip']:
+    # Download PIP packages from config/pip-packages.yaml
+    local pip_packages=($(python3 << EOF
+import yaml
+
+with open('${SCRIPT_DIR}/config/pip-packages.yaml', 'r') as f:
+    packages = yaml.safe_load(f)
+
+for pkg in packages:
     print(pkg['name'])
-"))
+EOF
+))
 
     if [[ ${#pip_packages[@]} -gt 0 ]]; then
         info "PIP packages to download: ${#pip_packages[@]}"
@@ -606,7 +751,7 @@ for pkg in data['system_packages']['pip']:
 
         # Download only if not skipped
         if [[ "$skip_pip_download" == "false" ]]; then
-            cp "${SCRIPT_DIR}/download-pip.sh" .
+            cp "${SCRIPT_DIR}/scripts/download-pip.sh" .
             chmod +x download-pip.sh
 
             progress "Executing download-pip.sh..."
@@ -676,160 +821,55 @@ EOF
 create_configurations() {
     section "Creating Configuration Files"
 
-    # Kernel modules
-    echo "$VERSION_DATA" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
+    # Kernel modules (from config/kernel-modules.yaml)
+    python3 << EOF
+import yaml
+
+with open('${SCRIPT_DIR}/config/kernel-modules.yaml', 'r') as f:
+    modules = yaml.safe_load(f)
+
 with open('${BUNDLE_DIR}/config/k8s-modules.conf', 'w') as f:
     f.write('# Kubernetes required kernel modules\n')
-    f.write('# Auto-generated\n\n')
-    for mod in data['kernel_modules']:
+    f.write('# Auto-generated from config/kernel-modules.yaml\n\n')
+    for mod in modules:
         f.write(f'{mod}\n')
-"
-
+EOF
     log "Kernel modules config created"
 
-    # Sysctl settings
-    echo "$VERSION_DATA" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
+    # Sysctl settings (from config/sysctl-settings.yaml)
+    python3 << EOF
+import yaml
+
+with open('${SCRIPT_DIR}/config/sysctl-settings.yaml', 'r') as f:
+    settings = yaml.safe_load(f)
+
 with open('${BUNDLE_DIR}/config/k8s-sysctl.conf', 'w') as f:
     f.write('# Kubernetes required sysctl settings\n')
-    f.write('# Auto-generated\n\n')
-    for key, value in data['sysctl'].items():
+    f.write('# Auto-generated from config/sysctl-settings.yaml\n\n')
+    for key, value in settings.items():
         f.write(f'{key} = {value}\n')
-"
-
+EOF
     log "Sysctl config created"
 
-    # Create load-kernel-modules.sh script
-    cat > "${BUNDLE_DIR}/scripts/load-kernel-modules.sh" << 'EOF'
-#!/bin/bash
-# Load Kubernetes required kernel modules
+    # Process configuration templates
+    progress "Processing containerd config template..."
+    process_template "templates/config/containerd-config.toml.j2" "${BUNDLE_DIR}/config/containerd-config.toml"
+    log "Containerd config created from template"
 
-set -e
+    progress "Processing crictl config template..."
+    process_template "templates/config/crictl.yaml.j2" "${BUNDLE_DIR}/config/crictl.yaml"
+    log "Crictl config created from template"
 
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log() { echo -e "${GREEN}[✓] $1${NC}"; }
-info() { echo -e "${BLUE}[ℹ] $1${NC}"; }
-error() { echo -e "${RED}[✗] ERROR: $1${NC}"; exit 1; }
-
-MODULES_CONF="/etc/modules-load.d/k8s-modules.conf"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Check root
-[[ $EUID -ne 0 ]] && error "This script must be run as root"
-
-info "Loading Kubernetes kernel modules..."
-
-# Copy modules configuration
-if [[ -f "$SCRIPT_DIR/../config/k8s-modules.conf" ]]; then
-    cp "$SCRIPT_DIR/../config/k8s-modules.conf" "$MODULES_CONF"
-    log "Modules configuration installed to $MODULES_CONF"
-else
-    error "k8s-modules.conf not found"
-fi
-
-# Load modules immediately
-while IFS= read -r module; do
-    # Skip comments and empty lines
-    [[ "$module" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "$module" ]] && continue
-
-    module=$(echo "$module" | xargs) # trim whitespace
-
-    if ! lsmod | grep -q "^${module}"; then
-        info "Loading module: $module"
-        modprobe "$module" 2>/dev/null || echo "  Warning: Failed to load $module (may not be available)"
-    else
-        echo "  ✓ $module (already loaded)"
-    fi
-done < "$MODULES_CONF"
-
-log "Kernel modules configured"
-EOF
+    # Process script templates
+    progress "Processing load-kernel-modules script template..."
+    process_template "templates/scripts/load-kernel-modules.sh.j2" "${BUNDLE_DIR}/scripts/load-kernel-modules.sh"
     chmod +x "${BUNDLE_DIR}/scripts/load-kernel-modules.sh"
-    log "load-kernel-modules.sh script created"
+    log "load-kernel-modules.sh created from template"
 
-    # Create apply-sysctl.sh script
-    cat > "${BUNDLE_DIR}/scripts/apply-sysctl.sh" << 'EOF'
-#!/bin/bash
-# Apply Kubernetes sysctl settings
-
-set -e
-
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log() { echo -e "${GREEN}[✓] $1${NC}"; }
-info() { echo -e "${BLUE}[ℹ] $1${NC}"; }
-error() { echo -e "${RED}[✗] ERROR: $1${NC}"; exit 1; }
-
-SYSCTL_CONF="/etc/sysctl.d/99-k8s.conf"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Check root
-[[ $EUID -ne 0 ]] && error "This script must be run as root"
-
-info "Applying Kubernetes sysctl settings..."
-
-# Copy sysctl configuration
-if [[ -f "$SCRIPT_DIR/../config/k8s-sysctl.conf" ]]; then
-    cp "$SCRIPT_DIR/../config/k8s-sysctl.conf" "$SYSCTL_CONF"
-    log "Sysctl configuration installed to $SYSCTL_CONF"
-else
-    error "k8s-sysctl.conf not found"
-fi
-
-# Apply settings
-sysctl --system >/dev/null
-
-# Verify key settings
-info "Verifying key settings:"
-for setting in net.ipv4.ip_forward net.bridge.bridge-nf-call-iptables; do
-    value=$(sysctl -n "$setting" 2>/dev/null || echo "N/A")
-    echo "  $setting = $value"
-done
-
-log "Sysctl settings applied"
-EOF
+    progress "Processing apply-sysctl script template..."
+    process_template "templates/scripts/apply-sysctl.sh.j2" "${BUNDLE_DIR}/scripts/apply-sysctl.sh"
     chmod +x "${BUNDLE_DIR}/scripts/apply-sysctl.sh"
-    log "apply-sysctl.sh script created"
-
-    # Containerd config
-    cat > "${BUNDLE_DIR}/config/containerd-config.toml" << 'EOF'
-version = 2
-
-imports = ["/etc/containerd/conf.d/*.toml"]
-
-[plugins]
-  [plugins."io.containerd.grpc.v1.cri"]
-    sandbox_image = "registry.k8s.io/pause:3.9"
-  [plugins."io.containerd.grpc.v1.cri".registry]
-    config_path = "/etc/containerd/certs.d"
-  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
-    runtime_type = "io.containerd.runc.v2"
-  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-    SystemdCgroup = true
-EOF
-
-    log "Containerd config created"
-
-    # Crictl config
-    cat > "${BUNDLE_DIR}/config/crictl.yaml" << 'EOF'
-runtime-endpoint: unix:///var/run/containerd/containerd.sock
-image-endpoint: unix:///var/run/containerd/containerd.sock
-timeout: 30
-debug: false
-EOF
-
-    log "Crictl config created"
+    log "apply-sysctl.sh created from template"
 }
 
 # ========================= CREATE INSTALLATION SCRIPT =========================
@@ -837,279 +877,15 @@ EOF
 create_installation_script() {
     section "Creating Installation Script"
 
-    cat > "${BUNDLE_DIR}/install-k8s.sh" << 'INSTALL_EOF'
-#!/bin/bash
-
-# ============================================================================
-# Kubernetes Complete Installation Script
-# ============================================================================
-
-set -e
-
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-log() { echo -e "${GREEN}[✓] $1${NC}"; }
-error() { echo -e "${RED}[✗] ERROR: $1${NC}"; exit 1; }
-info() { echo -e "${BLUE}[ℹ] $1${NC}"; }
-warning() { echo -e "${YELLOW}[⚠] $1${NC}"; }
-section() { echo -e "${CYAN}═══ $1 ═══${NC}"; }
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Check root
-[[ $EUID -ne 0 ]] && error "This script must be run as root"
-
-echo ""
-section "Kubernetes Complete Installation"
-echo ""
-
-# ========================= SYSTEM PACKAGES =========================
-
-section "Step 1/9: Installing System Packages"
-
-if [[ -f "$SCRIPT_DIR/scripts/install-apt.sh" ]] && [[ -d "$SCRIPT_DIR/packages/apt" ]]; then
-    cd "$SCRIPT_DIR/packages/apt"
-    # Set aggressive non-interactive environment for dpkg
-    export DEBIAN_FRONTEND=noninteractive
-    export DEBCONF_NONINTERACTIVE_SEEN=true
-    export DEBIAN_PRIORITY=critical
-    export APT_LISTCHANGES_FRONTEND=none
-    bash "$SCRIPT_DIR/scripts/install-apt.sh"
-    log "System packages installed"
-else
-    warning "System packages not found, skipping..."
-fi
-
-# ========================= PIP PACKAGES =========================
-
-section "Step 2/9: Installing Python Packages"
-
-if [[ -f "$SCRIPT_DIR/scripts/install-pip.sh" ]] && [[ -d "$SCRIPT_DIR/packages/pip" ]]; then
-    bash "$SCRIPT_DIR/scripts/install-pip.sh"
-    log "Python packages installed"
-else
-    warning "Python packages not found, skipping..."
-fi
-
-# ========================= KERNEL MODULES =========================
-
-section "Step 3/9: Configuring Kernel Modules"
-
-if [[ -f "$SCRIPT_DIR/config/k8s-modules.conf" ]]; then
-    cp "$SCRIPT_DIR/config/k8s-modules.conf" /etc/modules-load.d/
-
-    # Load modules
-    while IFS= read -r module; do
-        [[ "$module" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$module" ]] && continue
-        modprobe "$module" 2>/dev/null || warning "Failed to load: $module"
-    done < /etc/modules-load.d/k8s-modules.conf
-
-    log "Kernel modules configured"
-fi
-
-# ========================= SYSCTL =========================
-
-section "Step 4/9: Applying Sysctl Settings"
-
-if [[ -f "$SCRIPT_DIR/config/k8s-sysctl.conf" ]]; then
-    cp "$SCRIPT_DIR/config/k8s-sysctl.conf" /etc/sysctl.d/99-k8s.conf
-    sysctl --system >/dev/null
-    log "Sysctl settings applied"
-fi
-
-# ========================= DISABLE SWAP =========================
-
-section "Step 5/9: Disabling Swap"
-
-swapoff -a
-sed -i '/ swap / s/^/#/' /etc/fstab
-log "Swap disabled"
-
-# ========================= CONTAINERD =========================
-
-section "Step 6/9: Installing Containerd"
-
-if [[ -d "$SCRIPT_DIR/binaries/containerd" ]]; then
-    cd "$SCRIPT_DIR/binaries/containerd"
-
-    # Extract containerd
-    tar -xzf containerd-*.tar.gz -C /usr/local
-
-    # Install runc
-    install -m 755 runc /usr/local/sbin/runc
-
-    # Install systemd service
-    mkdir -p /etc/systemd/system
-    cp containerd.service /etc/systemd/system/
-
-    # Configure containerd
-    mkdir -p /etc/containerd
-    if [[ -f "$SCRIPT_DIR/config/containerd-config.toml" ]]; then
-        cp "$SCRIPT_DIR/config/containerd-config.toml" /etc/containerd/config.toml
-    else
-        containerd config default > /etc/containerd/config.toml
-    fi
-
-    # Start containerd
-    systemctl daemon-reload
-    systemctl enable containerd
-    systemctl start containerd
-
-    log "Containerd installed and started"
-else
-    warning "Containerd binaries not found"
-fi
-
-# ========================= CNI PLUGINS =========================
-
-section "Step 7/9: Installing CNI Plugins"
-
-if [[ -d "$SCRIPT_DIR/binaries/cni" ]]; then
-    mkdir -p /opt/cni/bin
-    cd "$SCRIPT_DIR/binaries/cni"
-    tar -xzf cni-plugins-*.tgz -C /opt/cni/bin
-    log "CNI plugins installed"
-fi
-
-# ========================= KUBERNETES BINARIES =========================
-
-section "Step 8/9: Installing Kubernetes Binaries"
-
-if [[ -d "$SCRIPT_DIR/binaries/kubernetes" ]]; then
-    cd "$SCRIPT_DIR/binaries/kubernetes"
-
-    # Install binaries to /usr/bin (required by systemd service)
-    install -m 755 kubeadm /usr/bin/
-    install -m 755 kubelet /usr/bin/
-    install -m 755 kubectl /usr/bin/
-
-    # Install crictl to /usr/local/bin (standard location)
-    if [[ -f crictl ]]; then
-        install -m 755 crictl /usr/local/bin/
-        log "crictl installed to /usr/local/bin"
-    fi
-
-    # Configure crictl
-    if [[ -f "$SCRIPT_DIR/config/crictl.yaml" ]]; then
-        mkdir -p /etc
-        cp "$SCRIPT_DIR/config/crictl.yaml" /etc/crictl.yaml
-        log "crictl configured"
-    fi
-
-    # Install kubelet systemd service
-    mkdir -p /etc/systemd/system/kubelet.service.d
-    cp kubelet.service /etc/systemd/system/
-    cp 10-kubeadm.conf /etc/systemd/system/kubelet.service.d/
-
-    # Enable kubelet
-    systemctl daemon-reload
-    systemctl enable kubelet
-
-    log "Kubernetes binaries installed"
-else
-    error "Kubernetes binaries not found"
-fi
-
-# ========================= CONTAINER IMAGES =========================
-
-section "Step 9/9: Loading Container Images"
-
-if [[ -f "$SCRIPT_DIR/images/images.txt" ]]; then
-    info "Container images will be pulled by kubeadm"
-    info "To pre-pull images, run: kubeadm config images pull"
-fi
-
-# ========================= VERIFICATION =========================
-
-section "Verification"
-
-echo ""
-info "Checking installation..."
-
-# Check binaries
-for cmd in kubeadm kubelet kubectl; do
-    if command -v $cmd &>/dev/null; then
-        version=$($cmd version --short 2>/dev/null | head -1 || echo "installed")
-        echo "  ✓ $cmd: $version"
-    else
-        echo "  ✗ $cmd: not found"
-    fi
-done
-
-# Check crictl
-if command -v crictl &>/dev/null; then
-    crictl_version=$(crictl --version 2>/dev/null | awk '{print $NF}' || echo "installed")
-    echo "  ✓ crictl: $crictl_version"
-else
-    echo "  ✗ crictl: not found"
-fi
-
-# Check containerd
-if systemctl is-active containerd &>/dev/null; then
-    echo "  ✓ containerd: running"
-else
-    echo "  ✗ containerd: not running"
-fi
-
-# Check ctr (comes with containerd)
-if command -v ctr &>/dev/null; then
-    echo "  ✓ ctr: installed"
-else
-    echo "  ✗ ctr: not found"
-fi
-
-# Check modules
-for mod in overlay br_netfilter ip_vs; do
-    if lsmod | grep -q "^${mod}"; then
-        echo "  ✓ $mod module loaded"
-    else
-        echo "  ✗ $mod module not loaded"
-    fi
-done
-
-# Check swap
-if swapon --show | grep -q '/'; then
-    echo "  ✗ swap still enabled"
-else
-    echo "  ✓ swap disabled"
-fi
-
-echo ""
-echo -e "${GREEN}"
-echo "═══════════════════════════════════════════════════════════════"
-echo "  Kubernetes Installation Complete!"
-echo "═══════════════════════════════════════════════════════════════"
-echo -e "${NC}"
-echo ""
-info "Next steps:"
-echo "  1. Initialize cluster (master node):"
-echo "     kubeadm init --pod-network-cidr=10.244.0.0/16"
-echo ""
-echo "  2. Configure kubectl:"
-echo "     mkdir -p \$HOME/.kube"
-echo "     cp /etc/kubernetes/admin.conf \$HOME/.kube/config"
-echo "     chown \$(id -u):\$(id -g) \$HOME/.kube/config"
-echo ""
-echo "  3. Apply CNI (choose one):"
-echo "     kubectl apply -f \$SCRIPT_DIR/binaries/cni/calico.yaml"
-echo "     # or"
-echo "     kubectl apply -f \$SCRIPT_DIR/binaries/cni/flannel.yaml"
-echo ""
-echo "  4. Join worker nodes:"
-echo "     kubeadm join <master-ip>:6443 --token <token> --discovery-token-ca-cert-hash <hash>"
-echo ""
-
-INSTALL_EOF
-
+    progress "Processing install-k8s.sh template..."
+    process_template "templates/install/install-k8s.sh.j2" "${BUNDLE_DIR}/install-k8s.sh"
     chmod +x "${BUNDLE_DIR}/install-k8s.sh"
-    log "Installation script created"
+    log "Installation script created from template"
 }
+
+# Legacy heredoc removed - now using template system
+# Old create_installation_script() implementation:
+# cat > "${BUNDLE_DIR}/install-k8s.sh" << 'INSTALL_EOF_REMOVED'
 
 # ========================= CREATE README =========================
 
@@ -1496,6 +1272,7 @@ main() {
     show_banner
 
     check_prerequisites
+    load_system_config
     validate_version
     setup_workspace
     download_kubernetes_binaries

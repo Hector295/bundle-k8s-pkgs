@@ -1,0 +1,42 @@
+#!/bin/bash
+# Apply Kubernetes sysctl settings
+# Generated from template - DO NOT EDIT DIRECTLY
+
+set -e
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log() { echo -e "${GREEN}[✓] $1${NC}"; }
+info() { echo -e "${BLUE}[ℹ] $1${NC}"; }
+error() { echo -e "${RED}[✗] ERROR: $1${NC}"; exit 1; }
+
+SYSCTL_CONF="/etc/sysctl.d/99-k8s.conf"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check root privileges
+[[ $EUID -ne 0 ]] && error "This script must be run as root"
+
+info "Applying Kubernetes sysctl settings..."
+
+# Copy sysctl configuration
+if [[ -f "$SCRIPT_DIR/../config/k8s-sysctl.conf" ]]; then
+    cp "$SCRIPT_DIR/../config/k8s-sysctl.conf" "$SYSCTL_CONF"
+    log "Sysctl configuration installed to $SYSCTL_CONF"
+else
+    error "k8s-sysctl.conf not found"
+fi
+
+# Apply all sysctl settings
+sysctl --system >/dev/null
+
+# Verify key settings
+info "Verifying key settings:"
+for setting in net.ipv4.ip_forward net.bridge.bridge-nf-call-iptables; do
+    value=$(sysctl -n "$setting" 2>/dev/null || echo "N/A")
+    echo "  $setting = $value"
+done
+
+log "Sysctl settings applied successfully"
