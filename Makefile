@@ -155,7 +155,7 @@ test-install:
 		echo "  sudo ./install-k8s.sh" \
 	'
 
-# Clean generated files
+# Clean generated files (preserves cache/)
 clean:
 	@echo "Cleaning generated files..."
 	rm -rf k8s-bundle-workspace/
@@ -165,6 +165,14 @@ clean:
 	rm -rf offline_pip_packages/
 	rm -f *.log
 	@echo "✓ Clean complete"
+	@echo "ℹ  cache/ directory preserved for faster rebuilds"
+	@echo "ℹ  Use 'make clean-all' to remove cache as well"
+
+# Clean everything including cache
+clean-all: clean
+	@echo "Cleaning cache..."
+	rm -rf cache/
+	@echo "✓ Cache removed"
 
 # Deep clean (including downloads)
 distclean: clean

@@ -22,6 +22,7 @@ ARCH="${3:-amd64}"
 
 WORK_DIR="./k8s-bundle-workspace"
 OUTPUT_DIR="./k8s-bundle-output"
+CACHE_DIR="./cache"
 BUNDLE_NAME="k8s-complete-${K8S_VERSION}-ubuntu${UBUNTU_VERSION}-${ARCH}"
 BUNDLE_DIR="${WORK_DIR}/${BUNDLE_NAME}"
 
@@ -615,27 +616,54 @@ EOF
 
     # Determine if we should skip APT download
     local skip_download=false
+    local cache_apt_dir="${SCRIPT_DIR}/cache/apt"
 
     if [[ "$SKIP_APT_DOWNLOAD" == "yes" ]]; then
-        # Explicit skip requested
-        if [[ -d "./offline_dpkg_packages" ]]; then
+        # Explicit skip requested - check cache first, then WORK_DIR
+        if [[ -d "$cache_apt_dir" ]]; then
+            local existing_debs=$(ls -1 "$cache_apt_dir"/*.deb 2>/dev/null | wc -l || echo "0")
+            if [[ $existing_debs -gt 0 ]]; then
+                info "SKIP_APT_DOWNLOAD=yes - Reusing $existing_debs cached .deb files"
+                # Copy from cache to work directory
+                mkdir -p ./offline_dpkg_packages
+                cp "$cache_apt_dir"/*.deb ./offline_dpkg_packages/ 2>/dev/null || true
+                if [[ -f "$cache_apt_dir/install.sh" ]]; then
+                    cp "$cache_apt_dir/install.sh" ./offline_dpkg_packages/
+                fi
+                skip_download=true
+            else
+                warning "SKIP_APT_DOWNLOAD=yes but cache empty, will download"
+            fi
+        elif [[ -d "./offline_dpkg_packages" ]]; then
             local existing_debs=$(ls -1 ./offline_dpkg_packages/*.deb 2>/dev/null | wc -l || echo "0")
             if [[ $existing_debs -gt 0 ]]; then
-                info "SKIP_APT_DOWNLOAD=yes - Reusing $existing_debs existing .deb files"
+                info "SKIP_APT_DOWNLOAD=yes - Reusing $existing_debs existing .deb files from workspace"
                 skip_download=true
             else
                 warning "SKIP_APT_DOWNLOAD=yes but no packages found, will download"
             fi
         else
-            warning "SKIP_APT_DOWNLOAD=yes but offline_dpkg_packages not found, will download"
+            warning "SKIP_APT_DOWNLOAD=yes but cache not found, will download"
         fi
     elif [[ "$SKIP_APT_DOWNLOAD" == "auto" ]]; then
-        # Auto-detect existing packages
-        if [[ -d "./offline_dpkg_packages" ]]; then
+        # Auto-detect existing packages in cache or workspace
+        if [[ -d "$cache_apt_dir" ]]; then
+            local existing_debs=$(ls -1 "$cache_apt_dir"/*.deb 2>/dev/null | wc -l || echo "0")
+            if [[ $existing_debs -gt 0 ]]; then
+                info "Auto-detected cached APT packages: $existing_debs .deb files"
+                info "Reusing cached packages (use SKIP_APT_DOWNLOAD=no to force re-download)"
+                mkdir -p ./offline_dpkg_packages
+                cp "$cache_apt_dir"/*.deb ./offline_dpkg_packages/ 2>/dev/null || true
+                if [[ -f "$cache_apt_dir/install.sh" ]]; then
+                    cp "$cache_apt_dir/install.sh" ./offline_dpkg_packages/
+                fi
+                skip_download=true
+            fi
+        elif [[ -d "./offline_dpkg_packages" ]]; then
             local existing_debs=$(ls -1 ./offline_dpkg_packages/*.deb 2>/dev/null | wc -l || echo "0")
             if [[ $existing_debs -gt 0 ]]; then
-                warning "Auto-detected existing APT packages: $existing_debs .deb files"
-                info "Reusing previously downloaded packages (use SKIP_APT_DOWNLOAD=no to force re-download)"
+                info "Auto-detected workspace APT packages: $existing_debs .deb files"
+                info "Reusing workspace packages (use SKIP_APT_DOWNLOAD=no to force re-download)"
                 skip_download=true
             fi
         fi
@@ -650,6 +678,16 @@ EOF
         progress "Executing download-apt.sh..."
         if ./download-apt.sh "${apt_packages[@]}" >> "$LOG_FILE" 2>&1; then
             log "APT packages downloaded"
+
+            # Cache downloaded packages for future builds
+            if [[ -d "./offline_dpkg_packages" ]]; then
+                mkdir -p "$cache_apt_dir"
+                cp ./offline_dpkg_packages/*.deb "$cache_apt_dir/" 2>/dev/null || true
+                if [[ -f "./offline_dpkg_packages/install.sh" ]]; then
+                    cp ./offline_dpkg_packages/install.sh "$cache_apt_dir/"
+                fi
+                info "Packages cached to $cache_apt_dir for future builds"
+            fi
         else
             error "Failed to download APT packages"
         fi
@@ -728,27 +766,54 @@ EOF
 
         # Determine if we should skip PIP download
         local skip_pip_download=false
+        local cache_pip_dir="${SCRIPT_DIR}/cache/pip"
 
         if [[ "$SKIP_PIP_DOWNLOAD" == "yes" ]]; then
-            # Explicit skip requested
-            if [[ -d "./offline_pip_packages" ]]; then
+            # Explicit skip requested - check cache first, then WORK_DIR
+            if [[ -d "$cache_pip_dir" ]]; then
+                local existing_pip=$(ls -1 "$cache_pip_dir"/* 2>/dev/null | wc -l || echo "0")
+                if [[ $existing_pip -gt 0 ]]; then
+                    info "SKIP_PIP_DOWNLOAD=yes - Reusing $existing_pip cached pip files"
+                    # Copy from cache to work directory
+                    mkdir -p ./offline_pip_packages
+                    cp "$cache_pip_dir"/* ./offline_pip_packages/ 2>/dev/null || true
+                    if [[ -f "$cache_pip_dir/install.sh" ]]; then
+                        cp "$cache_pip_dir/install.sh" ./offline_pip_packages/
+                    fi
+                    skip_pip_download=true
+                else
+                    warning "SKIP_PIP_DOWNLOAD=yes but cache empty, will download"
+                fi
+            elif [[ -d "./offline_pip_packages" ]]; then
                 local existing_pip=$(ls -1 ./offline_pip_packages/* 2>/dev/null | wc -l || echo "0")
                 if [[ $existing_pip -gt 0 ]]; then
-                    info "SKIP_PIP_DOWNLOAD=yes - Reusing $existing_pip existing pip files"
+                    info "SKIP_PIP_DOWNLOAD=yes - Reusing $existing_pip existing pip files from workspace"
                     skip_pip_download=true
                 else
                     warning "SKIP_PIP_DOWNLOAD=yes but no packages found, will download"
                 fi
             else
-                warning "SKIP_PIP_DOWNLOAD=yes but offline_pip_packages not found, will download"
+                warning "SKIP_PIP_DOWNLOAD=yes but cache not found, will download"
             fi
         elif [[ "$SKIP_PIP_DOWNLOAD" == "auto" ]]; then
-            # Auto-detect existing packages
-            if [[ -d "./offline_pip_packages" ]]; then
+            # Auto-detect existing packages in cache or workspace
+            if [[ -d "$cache_pip_dir" ]]; then
+                local existing_pip=$(ls -1 "$cache_pip_dir"/* 2>/dev/null | wc -l || echo "0")
+                if [[ $existing_pip -gt 0 ]]; then
+                    info "Auto-detected cached PIP packages: $existing_pip files"
+                    info "Reusing cached packages (use SKIP_PIP_DOWNLOAD=no to force re-download)"
+                    mkdir -p ./offline_pip_packages
+                    cp "$cache_pip_dir"/* ./offline_pip_packages/ 2>/dev/null || true
+                    if [[ -f "$cache_pip_dir/install.sh" ]]; then
+                        cp "$cache_pip_dir/install.sh" ./offline_pip_packages/
+                    fi
+                    skip_pip_download=true
+                fi
+            elif [[ -d "./offline_pip_packages" ]]; then
                 local existing_pip=$(ls -1 ./offline_pip_packages/* 2>/dev/null | wc -l || echo "0")
                 if [[ $existing_pip -gt 0 ]]; then
-                    warning "Auto-detected existing PIP packages: $existing_pip files"
-                    info "Reusing previously downloaded packages (use SKIP_PIP_DOWNLOAD=no to force re-download)"
+                    info "Auto-detected workspace PIP packages: $existing_pip files"
+                    info "Reusing workspace packages (use SKIP_PIP_DOWNLOAD=no to force re-download)"
                     skip_pip_download=true
                 fi
             fi
@@ -763,6 +828,18 @@ EOF
             progress "Executing download-pip.sh..."
             if ./download-pip.sh "${pip_packages[@]}" >> "$LOG_FILE" 2>&1; then
                 log "PIP packages downloaded"
+
+                # Cache downloaded packages for future builds
+                if [[ -d "./offline_pip_packages" ]]; then
+                    mkdir -p "$cache_pip_dir"
+                    cp ./offline_pip_packages/*.whl "$cache_pip_dir/" 2>/dev/null || true
+                    cp ./offline_pip_packages/*.tar.gz "$cache_pip_dir/" 2>/dev/null || true
+                    cp ./offline_pip_packages/*.zip "$cache_pip_dir/" 2>/dev/null || true
+                    if [[ -f "./offline_pip_packages/install_offline.sh" ]]; then
+                        cp ./offline_pip_packages/install_offline.sh "$cache_pip_dir/install.sh"
+                    fi
+                    info "PIP packages cached to $cache_pip_dir for future builds"
+                fi
             else
                 warning "Failed to download PIP packages"
             fi
