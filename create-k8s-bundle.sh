@@ -806,17 +806,17 @@ EOF
     cat > "${BUNDLE_DIR}/config/containerd-config.toml" << 'EOF'
 version = 2
 
+imports = ["/etc/containerd/conf.d/*.toml"]
+
 [plugins]
   [plugins."io.containerd.grpc.v1.cri"]
-    [plugins."io.containerd.grpc.v1.cri".containerd]
-      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
-        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
-          runtime_type = "io.containerd.runc.v2"
-          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-            SystemdCgroup = true
-    [plugins."io.containerd.grpc.v1.cri".cni]
-      bin_dir = "/opt/cni/bin"
-      conf_dir = "/etc/cni/net.d"
+    sandbox_image = "registry.k8s.io/pause:3.9"
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+    runtime_type = "io.containerd.runc.v2"
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+    SystemdCgroup = true
 EOF
 
     log "Containerd config created"
@@ -825,9 +825,8 @@ EOF
     cat > "${BUNDLE_DIR}/config/crictl.yaml" << 'EOF'
 runtime-endpoint: unix:///var/run/containerd/containerd.sock
 image-endpoint: unix:///var/run/containerd/containerd.sock
-timeout: 2
+timeout: 30
 debug: false
-pull-image-on-create: false
 EOF
 
     log "Crictl config created"
