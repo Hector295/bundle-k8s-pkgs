@@ -176,18 +176,19 @@ process_template() {
     local template_file="$1"
     local output_file="$2"
 
-    # Extract variables from VERSION_DATA
-    local k8s_ver=$(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['kubernetes']['version'])")
-    local pause_image=$(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['container_images']['pause'])")
-    local containerd_ver=$(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['container_runtime']['containerd']['version'])")
-    local runc_ver=$(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['container_runtime']['runc']['version'])")
-    local cni_ver=$(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['cni']['plugins_version'])")
-
-    # Process with Jinja2
+    # Process with Jinja2 - read version file directly in Python
     python3 << EOF
 import jinja2
-import json
+import yaml
 import sys
+
+# Load version data from YAML file
+try:
+    with open('${VERSION_FILE}', 'r') as f:
+        version_data = yaml.safe_load(f)
+except Exception as e:
+    print(f"ERROR loading version file: {e}", file=sys.stderr)
+    sys.exit(1)
 
 # Load template
 template_loader = jinja2.FileSystemLoader(searchpath='${SCRIPT_DIR}')
@@ -204,16 +205,20 @@ except jinja2.exceptions.TemplateNotFound as e:
     print(f"ERROR: Template not found: ${template_file}", file=sys.stderr)
     sys.exit(1)
 
-# Load full VERSION_DATA for advanced templates
-version_data = json.loads('''$VERSION_DATA''')
+# Extract common variables
+k8s_ver = version_data['kubernetes']['version']
+pause_image = version_data['container_images']['pause']
+containerd_ver = version_data['container_runtime']['containerd']['version']
+runc_ver = version_data['container_runtime']['runc']['version']
+cni_ver = version_data['cni']['plugins_version']
 
 # Template context variables
 context = {
-    'k8s_version': '${k8s_ver}',
-    'pause_image': '${pause_image}',
-    'containerd_version': '${containerd_ver}',
-    'runc_version': '${runc_ver}',
-    'cni_version': '${cni_ver}',
+    'k8s_version': k8s_ver,
+    'pause_image': pause_image,
+    'containerd_version': containerd_ver,
+    'runc_version': runc_ver,
+    'cni_version': cni_ver,
     'runtime_endpoint': 'unix:///var/run/containerd/containerd.sock',
     'image_endpoint': 'unix:///var/run/containerd/containerd.sock',
     'timeout': 30,
