@@ -285,6 +285,21 @@ download_kubernetes_binaries() {
         fi
     done
 
+    # Download crictl (CRI tools)
+    progress "Downloading crictl (CRI tools)..."
+    local crictl_ver=$(echo "$VERSION_DATA" | python3 -c "import sys,json; v=json.load(sys.stdin)['kubernetes']['components']['cri-tools']; print(v.split('-')[0])")
+    local crictl_url="https://github.com/kubernetes-sigs/cri-tools/releases/download/v${crictl_ver}/crictl-v${crictl_ver}-linux-${ARCH}.tar.gz"
+
+    if wget -q --show-progress "$crictl_url" 2>&1 | tee -a "$LOG_FILE"; then
+        # Extract crictl binary
+        tar -xzf "crictl-v${crictl_ver}-linux-${ARCH}.tar.gz"
+        rm "crictl-v${crictl_ver}-linux-${ARCH}.tar.gz"
+        chmod +x crictl
+        log "crictl downloaded and extracted"
+    else
+        error "Failed to download crictl"
+    fi
+
     # Download kubelet systemd service
     progress "Downloading kubelet systemd service..."
     wget -q -O kubelet.service \
@@ -970,10 +985,23 @@ section "Step 8/9: Installing Kubernetes Binaries"
 if [[ -d "$SCRIPT_DIR/binaries/kubernetes" ]]; then
     cd "$SCRIPT_DIR/binaries/kubernetes"
 
-    # Install binaries
-    install -m 755 kubeadm /usr/local/bin/
-    install -m 755 kubelet /usr/local/bin/
-    install -m 755 kubectl /usr/local/bin/
+    # Install binaries to /usr/bin (required by systemd service)
+    install -m 755 kubeadm /usr/bin/
+    install -m 755 kubelet /usr/bin/
+    install -m 755 kubectl /usr/bin/
+
+    # Install crictl to /usr/local/bin (standard location)
+    if [[ -f crictl ]]; then
+        install -m 755 crictl /usr/local/bin/
+        log "crictl installed to /usr/local/bin"
+    fi
+
+    # Configure crictl
+    if [[ -f "$SCRIPT_DIR/config/crictl.yaml" ]]; then
+        mkdir -p /etc
+        cp "$SCRIPT_DIR/config/crictl.yaml" /etc/crictl.yaml
+        log "crictl configured"
+    fi
 
     # Install kubelet systemd service
     mkdir -p /etc/systemd/system/kubelet.service.d
@@ -1015,11 +1043,26 @@ for cmd in kubeadm kubelet kubectl; do
     fi
 done
 
+# Check crictl
+if command -v crictl &>/dev/null; then
+    crictl_version=$(crictl --version 2>/dev/null | awk '{print $NF}' || echo "installed")
+    echo "  ✓ crictl: $crictl_version"
+else
+    echo "  ✗ crictl: not found"
+fi
+
 # Check containerd
 if systemctl is-active containerd &>/dev/null; then
     echo "  ✓ containerd: running"
 else
     echo "  ✗ containerd: not running"
+fi
+
+# Check ctr (comes with containerd)
+if command -v ctr &>/dev/null; then
+    echo "  ✓ ctr: installed"
+else
+    echo "  ✗ ctr: not found"
 fi
 
 # Check modules
@@ -1090,9 +1133,10 @@ This bundle contains **everything** needed to install Kubernetes ${K8S_VERSION} 
 - kubeadm ${K8S_VERSION}
 - kubelet ${K8S_VERSION}
 - kubectl ${K8S_VERSION}
+- crictl $(echo "$VERSION_DATA" | python3 -c "import sys,json; v=json.load(sys.stdin)['kubernetes']['components']['cri-tools']; print(v.split('-')[0])")
 
 ### 🐳 Container Runtime
-- containerd $(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['container_runtime']['containerd']['version'])")
+- containerd $(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['container_runtime']['containerd']['version'])") (includes ctr)
 - runc $(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['container_runtime']['runc']['version'])")
 
 ### 🔌 CNI Plugins
@@ -1144,7 +1188,15 @@ sudo tar -xzf cni-plugins-*.tgz -C /opt/cni/bin
 #### 4. Install Kubernetes
 \`\`\`bash
 cd binaries/kubernetes
-sudo install -m 755 kube{adm,let,ctl} /usr/local/bin/
+# Install Kubernetes binaries to /usr/bin (required by systemd)
+sudo install -m 755 kubeadm /usr/bin/
+sudo install -m 755 kubelet /usr/bin/
+sudo install -m 755 kubectl /usr/bin/
+# Install crictl to /usr/local/bin
+sudo install -m 755 crictl /usr/local/bin/
+# Configure crictl
+sudo cp ../../config/crictl.yaml /etc/crictl.yaml
+# Install systemd service
 sudo cp kubelet.service /etc/systemd/system/
 sudo mkdir -p /etc/systemd/system/kubelet.service.d
 sudo cp 10-kubeadm.conf /etc/systemd/system/kubelet.service.d/
@@ -1250,6 +1302,9 @@ $(echo "$VERSION_DATA" | head -30)
 - Container images will be pulled during kubeadm init
 - Swap is automatically disabled
 - Kernel modules are configured for IPVS mode
+- **crictl** is included for CRI debugging (installed to /usr/local/bin)
+- **ctr** comes bundled with containerd (installed to /usr/local/bin)
+- Kubernetes binaries (kubeadm, kubelet, kubectl) are installed to /usr/bin (required by systemd)
 
 ## Support
 

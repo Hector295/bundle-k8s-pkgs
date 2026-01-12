@@ -1,403 +1,458 @@
-# K8S Offline Bundle Creator
+# Kubernetes Offline Bundle Creator
 
-> **Sistema completo para crear ISOs custom de Ubuntu Server optimizadas para Kubernetes con instalación offline**
+> **Create complete offline installation bundles for Kubernetes worker nodes**
 
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.28%20|%201.29%20|%201.30-326CE5?logo=kubernetes)](https://kubernetes.io)
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-20.04%20|%2022.04%20|%2024.04-orange?logo=ubuntu)](https://ubuntu.com)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.28+-326CE5?logo=kubernetes)](https://kubernetes.io)
-[![Bash](https://img.shields.io/badge/Bash-5.0+-4EAA25?logo=gnu-bash)](https://www.gnu.org/software/bash/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## 📋 Descripción
+## 📋 Overview
 
-Este proyecto proporciona un conjunto de scripts bash robustos y bien documentados para:
+This project provides automated scripts to create complete offline installation bundles for Kubernetes worker nodes. Each bundle contains everything needed to install and configure a Kubernetes worker node without internet access.
 
-1. **Descargar** paquetes APT y PIP con todas sus dependencias (modo offline)
-2. **Empaquetar** todo en un bundle tar.gz autocontenido
-3. **Integrar** el bundle en ISOs custom usando Cubic
-4. **Preparar** sistemas Ubuntu Server para Kubernetes sin internet
+### What's Included
 
-## 🎯 Características
+Each bundle contains:
 
-- ✅ **100% Offline**: Todo funciona sin conexión a internet después de crear el bundle
-- ✅ **Idempotente**: Seguro ejecutar múltiples veces
-- ✅ **Verificaciones**: Checksums SHA256 y MD5 automáticos
-- ✅ **Modular**: Fácil agregar/quitar paquetes
-- ✅ **Logging**: Logs detallados de todas las operaciones
-- ✅ **Colores**: Output colorizado para mejor legibilidad
-- ✅ **Documentado**: Guías completas y comentarios en código
+- **Kubernetes Binaries** (kubeadm, kubelet, kubectl, crictl)
+- **Container Runtime** (containerd, ctr, runc)
+- **CNI Plugins** (bridge, host-local, loopback, etc.)
+- **System Packages** (APT packages with dependencies)
+- **Configuration Files** (kernel modules, sysctl settings, systemd services)
+- **Installation Scripts** (automated installer)
 
-## 🚀 Inicio Rápido
+### Supported Versions
 
-### Prerrequisitos
+| Kubernetes | containerd | runc | crictl | CNI Plugins | Ubuntu |
+|------------|------------|------|--------|-------------|--------|
+| 1.30.2 | 1.7.18 | 1.1.13 | 1.30.0 | 1.5.0 | 20.04, 22.04, 24.04 |
+| 1.29.6 | 1.7.17 | 1.1.12 | 1.29.0 | 1.4.1 | 20.04, 22.04, 24.04 |
+| 1.28.11 | 1.7.16 | 1.1.12 | 1.28.0 | 1.4.0 | 20.04, 22.04 |
+
+## 🚀 Quick Start
+
+### Prerequisites
 
 ```bash
-# Sistema Ubuntu/Debian con internet
+# Ubuntu/Debian system with internet connection
 sudo apt update
-sudo apt install -y tar gzip wget curl apt-transport-https python3-pip
-
-# Clonar/copiar este proyecto
-cd /home/hector/Documents/k8s-isos
+sudo apt install -y curl wget tar gzip python3 python3-yaml apt-transport-https
 ```
 
-### Crear Bundle (3 comandos)
+### Create Bundle (3 Steps)
 
 ```bash
-# 1. Crear el bundle
+# 1. Build the bundle (default: K8s 1.30.2)
 make build
 
-# 2. Verificar integridad
+# 2. Verify integrity
 make verify
 
-# 3. Ver información
+# 3. Show bundle info
 make show-info
 ```
 
-### Usar con Cubic
+The bundle will be created at: `k8s-bundle-output/k8s-complete-1.30.2-ubuntu22.04-amd64.tar.gz`
+
+### Install on Target System
+
+Copy the bundle to your target system (without internet) and run:
 
 ```bash
-# 1. Copiar a Cubic
-CUBIC_PROJECT=~/Cubic/mi-proyecto make install-cubic
+# Extract
+tar -xzf k8s-complete-1.30.2-ubuntu22.04-amd64.tar.gz
+cd k8s-complete-1.30.2-ubuntu22.04-amd64
 
-# 2. En el chroot de Cubic
-cd /opt
-./cubic-install-bundle.sh
+# Install everything
+sudo ./install-k8s.sh
+
+# Join the cluster
+sudo kubeadm join <master-ip>:6443 --token <token> \
+  --discovery-token-ca-cert-hash sha256:<hash>
 ```
 
-¡Listo! Tu ISO ahora incluye todo lo necesario para K8S.
+## 📦 Build Options
 
-## 📦 Contenido del Bundle
+### Build Specific Versions
 
-### Paquetes APT (23+)
-- **Networking**: network-manager, iputils-ping, tcpdump, lldpd
-- **Storage**: multipath-tools, open-iscsi, nfs-common
-- **Security**: iptables, nftables, ebtables, ufw
-- **Kubernetes**: ipvsadm (IPVS mode), ethtool, ipmitool
-- **Utilities**: jq, vim, cron, rsyslog, sysstat, s3cmd, dmidecode, lsof
+```bash
+# Quick build for common versions
+make build-1.30      # Kubernetes 1.30.2
+make build-1.29      # Kubernetes 1.29.6
+make build-1.28      # Kubernetes 1.28.11
 
-### Paquetes PIP
-- **jc**: JSON parser para CLI output (útil para scripts de automatización)
+# Build specific version
+make build K8S_VERSION=1.30.2
 
-### Configuraciones
-- **Módulos Kernel**: ip_vs, nf_conntrack, nvme_tcp (8 módulos)
-- **Sysctl**: IP forwarding, bridge netfilter, connection tracking
-- **Sistema**: Swap deshabilitado, file watchers aumentados
+# Build for ARM64
+make build ARCH=arm64
 
-## 📁 Estructura del Proyecto
+# Build for different Ubuntu version
+make build UBUNTU_VERSION=24.04
+
+# Build with Flannel instead of Calico
+CNI_PROVIDER=flannel make build
+```
+
+### Advanced Options
+
+```bash
+# Build all versions at once
+make build-all
+
+# Quick build + verify + info
+make quick
+
+# Extract bundle for inspection
+make extract
+
+# List available K8s versions
+make list-versions
+
+# Clean generated files
+make clean
+```
+
+### Environment Variables
+
+You can customize the build with environment variables:
+
+```bash
+# Skip downloading packages (reuse cached)
+SKIP_APT_DOWNLOAD=yes make build
+SKIP_PIP_DOWNLOAD=yes make build
+
+# Skip components
+DOWNLOAD_IMAGES=no make build    # Don't create images list
+DOWNLOAD_CNI=no make build       # Skip CNI manifests
+
+# Keep workspace after build
+SKIP_CLEANUP=yes make build
+```
+
+## 📁 Project Structure
 
 ```
 k8s-isos/
-├── README.md                      # Este archivo
-├── GUIA-USO.md                   # Guía detallada en español
-├── Makefile                      # Comandos simplificados
+├── README.md                    # This file
+├── Makefile                     # Build automation
+├── k8s-versions.yaml           # Version matrix
 │
-├── download-apt.sh               # Descargador de paquetes APT
-├── download-pip.sh               # Descargador de paquetes PIP
-├── prepare-k8s-bundle.sh        # Script principal (crea bundle)
-├── cubic-install-bundle.sh      # Instalador para Cubic
-├── verify-bundle.sh             # Verificador de bundle
+├── create-k8s-bundle.sh        # Main bundle creator
+├── download-apt.sh             # APT package downloader
+├── download-pip.sh             # PIP package downloader
+├── verify-bundle.sh            # Bundle verifier
+├── list-k8s-versions.py        # Version lister
 │
-└── bundle-output/               # Generado tras 'make build'
-    ├── k8s-offline-bundle-1.0.0.tar.gz
-    ├── k8s-offline-bundle-1.0.0.tar.gz.sha256
-    ├── k8s-offline-bundle-1.0.0.tar.gz.md5
-    └── bundle-preparation.log
+└── k8s-bundle-output/          # Generated bundles (after build)
+    ├── k8s-complete-*.tar.gz
+    ├── k8s-complete-*.tar.gz.sha256
+    └── k8s-complete-*.tar.gz.md5
 ```
 
-### Dentro del Bundle
+## 📋 What Gets Installed
+
+### Binaries
+
+| Binary | Path | Version | Purpose |
+|--------|------|---------|---------|
+| kubelet | /usr/bin/kubelet | 1.30.2 | Node agent |
+| kubeadm | /usr/bin/kubeadm | 1.30.2 | Cluster join tool |
+| kubectl | /usr/bin/kubectl | 1.30.2 | CLI tool |
+| crictl | /usr/local/bin/crictl | 1.30.0 | CRI debugging |
+| containerd | /usr/local/bin/containerd | 1.7.18 | Container runtime |
+| ctr | /usr/local/bin/ctr | 1.7.18 | containerd CLI |
+| runc | /usr/local/sbin/runc | 1.1.13 | OCI runtime |
+| CNI plugins | /opt/cni/bin/* | 1.5.0 | Network plugins |
+
+### System Packages (APT)
+
+- **Networking**: ipvsadm, ipset, iptables, ebtables, nftables, conntrack, socat
+- **Storage**: nfs-common, open-iscsi, multipath-tools
+- **Utilities**: jq, vim, curl, wget, tcpdump, sysstat, lsof, net-tools
+
+### Kernel Modules
+
+- overlay, br_netfilter
+- ip_vs, ip_vs_rr, ip_vs_wrr, ip_vs_sh
+- nf_conntrack, nvme_tcp
+
+### System Configuration
+
+- Sysctl: IP forwarding, bridge netfilter, connection tracking
+- Swap: Automatically disabled
+- Systemd: kubelet and containerd services configured
+
+## 🔧 Bundle Contents
+
+After extraction, the bundle directory contains:
 
 ```
-k8s-offline-bundle/
-├── install.sh                    # Instalador maestro
-├── README.md                    # Documentación del bundle
+k8s-complete-1.30.2-ubuntu22.04-amd64/
+├── binaries/
+│   ├── kubernetes/          # kubeadm, kubelet, kubectl, crictl
+│   ├── containerd/          # containerd, ctr, runc
+│   └── cni/                 # CNI plugins + manifests
 ├── packages/
-│   ├── apt/                     # ~100+ archivos .deb
-│   └── pip/                     # Wheels de Python
+│   ├── apt/                 # .deb packages
+│   └── pip/                 # Python wheels
+├── config/
+│   ├── k8s-modules.conf     # Kernel modules
+│   ├── k8s-sysctl.conf      # Sysctl settings
+│   ├── containerd-config.toml
+│   └── crictl.yaml
 ├── scripts/
-│   ├── install-apt.sh           # Instala paquetes APT
-│   ├── install-pip.sh           # Instala paquetes PIP
-│   ├── load-kernel-modules.sh  # Carga módulos
-│   ├── apply-sysctl.sh         # Aplica sysctl
-│   └── verify-apt.sh           # Verifica paquetes
-└── config/
-    ├── k8s-modules.conf         # Lista de módulos
-    └── k8s-sysctl.conf          # Configuración sysctl
+│   ├── install-apt.sh       # APT installer
+│   └── install-pip.sh       # PIP installer
+├── images/
+│   └── images.txt           # Container images list
+├── install-k8s.sh           # Main installer
+└── README.md                # Bundle documentation
 ```
 
-## 🛠️ Comandos Make
+## 📖 Usage Examples
+
+### Example 1: Basic Worker Node
 
 ```bash
-make help           # Mostrar todos los comandos
-make build          # Crear bundle
-make verify         # Verificar bundle
-make clean          # Limpiar archivos generados
-make all            # build + verify
-make show-info      # Info del bundle
-make checksums      # Verificar checksums
-make test-vm        # Probar en VM (requiere multipass)
-make rebuild        # clean + build + verify
-make extract        # Extraer bundle para inspeccionar
-```
-
-## 📖 Documentación
-
-- **[GUIA-USO.md](GUIA-USO.md)** - Guía completa en español (paso a paso)
-- **[Scripts individuales]** - Todos tienen `--help` integrado
-
-## 🔍 Ejemplos de Uso
-
-### Escenario 1: Crear ISO para Datacenter Offline
-
-```bash
-# En máquina con internet
-cd /home/hector/Documents/k8s-isos
+# Build bundle
 make build
+
+# On target machine (offline)
+tar -xzf k8s-complete-1.30.2-ubuntu22.04-amd64.tar.gz
+cd k8s-complete-1.30.2-ubuntu22.04-amd64
+sudo ./install-k8s.sh
+
+# Join cluster
+sudo kubeadm join 192.168.1.10:6443 --token abc123.xyz \
+  --discovery-token-ca-cert-hash sha256:1234567890abcdef...
+```
+
+### Example 2: ARM64 Worker
+
+```bash
+# Build for ARM64
+make build ARCH=arm64
+
+# Transfer to ARM64 machine and install
+tar -xzf k8s-complete-1.30.2-ubuntu22.04-arm64.tar.gz
+cd k8s-complete-1.30.2-ubuntu22.04-arm64
+sudo ./install-k8s.sh
+```
+
+### Example 3: Multiple Versions
+
+```bash
+# Build all versions
+make build-all
+
+# Result:
+# k8s-bundle-output/k8s-complete-1.30.2-ubuntu22.04-amd64.tar.gz
+# k8s-bundle-output/k8s-complete-1.29.6-ubuntu22.04-amd64.tar.gz
+# k8s-bundle-output/k8s-complete-1.28.11-ubuntu22.04-amd64.tar.gz
+```
+
+### Example 4: Custom Build
+
+```bash
+# Build with Flannel, skip cached packages
+CNI_PROVIDER=flannel \
+SKIP_APT_DOWNLOAD=yes \
+SKIP_PIP_DOWNLOAD=yes \
+make build K8S_VERSION=1.30.2
+```
+
+## 🔍 Verification
+
+### Verify Bundle Integrity
+
+```bash
+# Check checksums
 make verify
 
-# Copiar bundle-output/k8s-offline-bundle-1.0.0.tar.gz a USB
-
-# En datacenter (sin internet)
-# Usar Cubic con la ISO base + el bundle
-CUBIC_PROJECT=/path/to/cubic/project make install-cubic
+# Manual verification
+cd k8s-bundle-output
+sha256sum -c k8s-complete-1.30.2-ubuntu22.04-amd64.tar.gz.sha256
 ```
 
-### Escenario 2: Probar Bundle Antes de ISO
+### Verify Installation
+
+After installing on the target system:
 
 ```bash
-# Crear y probar en VM local
-make build
-make test-vm
+# Check versions
+kubeadm version
+kubelet --version
+kubectl version --client
+crictl --version
 
-# Verificar en VM
-multipass shell k8s-bundle-test
-lsmod | grep ip_vs
+# Check services
+systemctl status containerd
+systemctl status kubelet
+
+# Check modules
+lsmod | grep -E 'overlay|br_netfilter|ip_vs'
+
+# Check sysctl
 sysctl net.ipv4.ip_forward
-
-# Limpiar
-multipass delete k8s-bundle-test && multipass purge
+sysctl net.bridge.bridge-nf-call-iptables
 ```
 
-### Escenario 3: Personalizar Paquetes
+## 🛠️ Troubleshooting
+
+### Bundle Creation Issues
+
+**Problem**: Missing python3-yaml
+```bash
+sudo apt install -y python3-yaml
+```
+
+**Problem**: Download fails
+```bash
+# Check internet connection
+curl -I https://dl.k8s.io
+
+# Try with clean cache
+make clean && make build
+```
+
+### Installation Issues
+
+**Problem**: Kubelet fails to start
+```bash
+# Check logs
+journalctl -u kubelet -n 50
+
+# Verify binary path
+which kubelet  # Should be /usr/bin/kubelet
+
+# Check service file
+cat /etc/systemd/system/kubelet.service
+```
+
+**Problem**: Containerd not running
+```bash
+# Check status
+systemctl status containerd
+
+# Check logs
+journalctl -u containerd -n 50
+
+# Restart
+sudo systemctl restart containerd
+```
+
+## 📚 Documentation
+
+### Official Kubernetes Documentation
+
+- [Installing kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/)
+- [Container Runtimes](https://kubernetes.io/docs/setup/production-environment/container-runtimes/)
+- [Adding Linux worker nodes](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/adding-linux-nodes/)
+- [Debugging with crictl](https://kubernetes.io/docs/tasks/debug/debug-cluster/crictl/)
+
+### Version Information
+
+All version compatibility information is defined in `k8s-versions.yaml`. To see available versions:
 
 ```bash
-# Editar prepare-k8s-bundle.sh
-nano prepare-k8s-bundle.sh
-
-# Agregar en APT_PACKAGES
-APT_PACKAGES=(
-    ...
-    "htop"           # Agregar nuevo
-    "iotop"          # Agregar nuevo
-)
-
-# Reconstruir
-make rebuild
+make list-versions
 ```
 
-### Escenario 4: Solo Descargar Paquetes (Sin Bundle)
+## 🤝 Contributing
 
-```bash
-# APT
-./download-apt.sh vim git curl
-# Resultado: offline_dpkg_packages/*.deb
+Contributions are welcome! Please feel free to submit issues or pull requests.
 
-# PIP
-./download-pip.sh requests flask
-# Resultado: offline_pip_packages/*.whl
-```
+## 📄 License
 
-## 🧪 Testing
+MIT License - See LICENSE file for details
 
-### Test Local (Sintaxis y Scripts)
-```bash
-make test-local
-```
+## ⚠️ Important Notes
 
-### Test en VM (Funcionalidad Completa)
-```bash
-# Requiere multipass instalado
-sudo snap install multipass
-make test-vm
-```
+1. **Paths Matter**: Kubernetes binaries MUST be in `/usr/bin/` because the systemd service expects them there
+2. **crictl is Required**: Essential for CRI debugging and recommended by Kubernetes
+3. **ctr Included**: Automatically included with containerd, no separate download needed
+4. **kube-proxy**: Deployed automatically as DaemonSet when joining cluster with `kubeadm join`
+5. **Swap**: Must be disabled for Kubernetes (done automatically by installer)
+6. **Version Matching**: Use matching versions of crictl and Kubernetes for best compatibility
 
-### Test Manual en Sistema Real
-```bash
-# Extraer bundle
-make extract
-cd bundle-inspect/k8s-offline-bundle
+## 🎯 What This Project Does
 
-# Instalar
-sudo ./install.sh
+✅ **Downloads** all required binaries with checksums
+✅ **Packages** APT and PIP packages with dependencies
+✅ **Creates** ready-to-use offline bundles
+✅ **Generates** installation scripts
+✅ **Configures** kernel modules and sysctl settings
+✅ **Verifies** checksums and integrity
 
-# Verificar
-lsmod | grep -E 'ip_vs|nf_conntrack'
-sysctl net.ipv4.ip_forward
-dpkg -l | grep jq
-pip3 list | grep jc
-```
+## 🚫 What This Project Doesn't Do
 
-## 🔧 Integración con Cubic
-
-### Método 1: Automático (Recomendado)
-
-```bash
-CUBIC_PROJECT=~/Cubic/mi-k8s-iso make install-cubic
-
-# En Cubic chroot
-cd /opt && ./cubic-install-bundle.sh
-```
-
-### Método 2: Manual
-
-```bash
-# 1. Copiar bundle a Cubic
-cp bundle-output/k8s-offline-bundle-1.0.0.tar.gz \
-   ~/Cubic/mi-proyecto/custom-root/opt/
-
-# 2. En Cubic chroot
-cd /opt
-tar -xzf k8s-offline-bundle-1.0.0.tar.gz
-cd k8s-offline-bundle
-./install.sh
-```
-
-### Método 3: First Boot (Instalación en primer inicio)
-
-Ver **GUIA-USO.md** sección "Opción C: Instalación en Primera Ejecución"
-
-## 🐛 Troubleshooting
-
-### Error: "download-apt.sh not found"
-```bash
-# Verificar archivos
-ls -la *.sh
-# Deben estar todos en el mismo directorio
-```
-
-### Error: "Failed to download APT packages"
-```bash
-# Actualizar repos
-make update-cache
-# O manualmente
-sudo apt update
-```
-
-### Bundle muy grande
-```bash
-# Ver qué ocupa espacio
-make extract
-cd bundle-inspect/k8s-offline-bundle
-du -sh packages/*
-
-# Opción: Usar --no-deps (más riesgoso)
-# Editar download-apt.sh para incluir --no-deps
-```
-
-### Módulos no cargan en chroot
-**Esto es normal**. Los módulos se cargarán cuando se bootee desde la ISO final, no en el entorno chroot de Cubic.
-
-## 📊 Tamaño Esperado
-
-- **Bundle completo**: ~150-300 MB (depende de arquitectura y dependencias)
-- **Paquetes APT**: ~100-200 MB
-- **Paquetes PIP**: ~5-10 MB
-- **Scripts + configs**: <1 MB
-
-## 🔐 Seguridad
-
-- ✅ Todos los scripts usan `set -e` (exit on error)
-- ✅ Validación de input y argumentos
-- ✅ Checksums SHA256 y MD5
-- ✅ Verificación de integridad de paquetes
-- ✅ No ejecuta código de red sin validar
-
-## 🤝 Contribuir
-
-Mejoras bienvenidas:
-
-1. Fork del proyecto
-2. Crear branch: `git checkout -b feature/nueva-funcionalidad`
-3. Commit: `git commit -am 'Agregar nueva funcionalidad'`
-4. Push: `git push origin feature/nueva-funcionalidad`
-5. Pull Request
-
-## 📝 Changelog
-
-### v1.0.0 (2026-01-07)
-- ✨ Release inicial
-- ✅ Scripts de descarga APT y PIP
-- ✅ Bundle creator con verificación
-- ✅ Integración con Cubic
-- ✅ Makefile con comandos útiles
-- ✅ Documentación completa
-
-## 🗺️ Roadmap
-
-- [ ] Soporte para Red Hat/CentOS (yum/dnf)
-- [ ] Descarga de imágenes Docker/containerd
-- [ ] Bundle para containerd + kubeadm completo
-- [ ] Script de post-instalación con kubeadm init
-- [ ] Soporte para CNI plugins (Calico, Flannel)
-- [ ] GUI para seleccionar paquetes
-- [ ] Tests automatizados (CI/CD)
-
-## 📜 Licencia
-
-MIT License - Ver archivo LICENSE para detalles
-
-## 👤 Autor
-
-**Hector** - Sistema de bundles offline para Kubernetes
+❌ Install master/control-plane nodes (use `kubeadm init` separately)
+❌ Configure networking/CNI (apply CNI manifest after cluster init)
+❌ Manage cluster lifecycle (use kubectl/kubeadm for that)
+❌ Create custom ISOs (use tools like Cubic separately if needed)
 
 ---
 
-## 🎓 Recursos Adicionales
+**Made for Kubernetes 1.30.2 worker nodes**
 
-### Kubernetes
-- [Kubernetes Docs](https://kubernetes.io/docs/)
-- [kubeadm Installation Guide](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/)
+## 🔌 CNI Configuration (Important!)
 
-### Cubic
-- [Cubic GitHub](https://github.com/PJ-Singh-001/Cubic)
-- [Cubic Documentation](https://github.com/PJ-Singh-001/Cubic/wiki)
+### If You Use Calico via Helm Chart
 
-### Ubuntu
-- [Ubuntu Server Guide](https://ubuntu.com/server/docs)
-- [Ubuntu Package Search](https://packages.ubuntu.com/)
-
----
-
-## ⚡ Quick Reference Card
-
+**Use this command:**
 ```bash
-# Crear bundle
-make build
-
-# Verificar
-make verify
-
-# Ver info
-make show-info
-
-# Usar en Cubic
-CUBIC_PROJECT=~/Cubic/proyecto make install-cubic
-
-# En Cubic chroot
-cd /opt && ./cubic-install-bundle.sh
-
-# Probar en VM
-make test-vm
-
-# Limpiar
-make clean
-
-# Help
-make help
+CNI_PROVIDER=none make build
 ```
 
----
+This creates a bundle with:
+- ✅ **CNI plugins base** (bridge, loopback, etc.) - **REQUIRED by containerd**
+- ❌ **NO calico.yaml manifest** (you'll install via Helm instead)
 
-**¿Preguntas?** Lee **GUIA-USO.md** para documentación detallada.
+### Understanding CNI
 
-**¿Problemas?** Revisa `bundle-output/bundle-preparation.log`
+There are **TWO different things**:
 
-**¿Mejoras?** Pull requests bienvenidas 🚀
+1. **CNI Plugins Base** (cni-plugins-linux-amd64-v1.5.0.tgz)
+   - Basic network binaries: bridge, loopback, host-local, portmap, etc.
+   - Location: `/opt/cni/bin/`
+   - Required by: containerd (ALWAYS needed)
+   - **Always included in bundle** (cannot be omitted)
+
+2. **CNI Network Solution** (Calico, Flannel, etc.)
+   - Full network solution for Kubernetes
+   - Install via:
+     - **Option A**: Manifest → `kubectl apply -f calico.yaml`
+     - **Option B**: Helm → `helm install calico projectcalico/tigera-operator`
+
+### Build Options
+
+| Use Case | Command | Includes |
+|----------|---------|----------|
+| **Calico via Helm** | `CNI_PROVIDER=none make build` | CNI plugins base only |
+| Calico via Manifest | `make build` (default) | CNI plugins + calico.yaml |
+| Flannel via Manifest | `CNI_PROVIDER=flannel make build` | CNI plugins + flannel.yaml |
+
+### Complete Flow with Calico Helm Chart
+
+```bash
+# 1. Build bundle (machine with internet)
+CNI_PROVIDER=none make build
+
+# 2. Install on worker (offline)
+sudo ./install-k8s.sh
+
+# 3. Join cluster (via Ansible)
+ansible-playbook worker-join-playbook.yml
+
+# 4. Install Calico via Helm (from master/bastion)
+helm repo add projectcalico https://docs.tigera.io/calico/charts
+helm install calico projectcalico/tigera-operator \
+  --namespace tigera-operator \
+  --create-namespace
+
+# 5. Verify
+kubectl get nodes  # Worker should be Ready
+```
+
+**See [CNI-HELM-CHART-GUIDE.md](CNI-HELM-CHART-GUIDE.md) for detailed information.**
+

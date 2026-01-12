@@ -1,0 +1,157 @@
+---
+# Enhanced validation tasks for your existing playbook
+# Add this block before "Register node if needed"
+
+- name: Pre-join system validation
+  become: true
+  when: kubelet_is_inactive
+  block:
+    - name: Verify containerd is running and enabled
+      ansible.builtin.systemd:
+        name: containerd
+        state: started
+        enabled: yes
+      register: containerd_service
+      
+    - name: Verify crictl can communicate with containerd
+      ansible.builtin.command: crictl info
+      changed_when: false
+      register: crictl_check
+      failed_when: crictl_check.rc != 0
+      
+    - name: Parse containerd info
+      set_fact:
+        containerd_info: "{{ crictl_check.stdout | from_json }}"
+      
+    - name: Display containerd runtime info
+      ansible.builtin.debug:
+        msg: 
+          - "Runtime: {{ containerd_info.config.containerd.runtime }}"
+          - "Runtime Version: {{ containerd_info.config.containerd.runtimes.runc.runtimeVersion }}"
+          - "CRI Version: {{ containerd_info.status.conditions[0].type }}"
+      when: ansible_verbosity >= 1
+      
+    - name: Verify required kernel modules are loaded
+      ansible.builtin.shell: |
+        missing_modules=""
+        for mod in overlay br_netfilter ip_vs ip_vs_rr ip_vs_wrr ip_vs_sh nf_conntrack; do
+          if ! lsmod | grep -q "^${mod}"; then
+            missing_modules="${missing_modules} ${mod}"
+          fi
+        done
+        if [ -n "$missing_modules" ]; then
+          echo "Missing modules:${missing_modules}"
+          exit 1
+        fi
+        echo "All required modules loaded"
+      changed_when: false
+      register: module_check
+      
+    - name: Verify critical sysctl settings
+      ansible.builtin.shell: |
+        errors=""
+        
+        # IP forwarding
+        if [ "$(sysctl -n net.ipv4.ip_forward)" != "1" ]; then
+          errors="${errors}\n- net.ipv4.ip_forward is not enabled"
+        fi
+        
+        # Bridge netfilter
+        if [ "$(sysctl -n net.bridge.bridge-nf-call-iptables)" != "1" ]; then
+          errors="${errors}\n- net.bridge.bridge-nf-call-iptables is not enabled"
+        fi
+        
+        if [ "$(sysctl -n net.bridge.bridge-nf-call-ip6tables)" != "1" ]; then
+          errors="${errors}\n- net.bridge.bridge-nf-call-ip6tables is not enabled"
+        fi
+        
+        if [ -n "$errors" ]; then
+          echo -e "Sysctl errors:${errors}"
+          exit 1
+        fi
+        echo "All sysctl settings correct"
+      changed_when: false
+      register: sysctl_check
+      
+    - name: Verify swap is disabled
+      ansible.builtin.shell: |
+        swap_count=$(swapon --show | wc -l)
+        if [ "$swap_count" != "0" ]; then
+          echo "Swap is enabled (found $swap_count swap devices)"
+          exit 1
+        fi
+        echo "Swap is disabled"
+      changed_when: false
+      register: swap_check
+      
+    - name: Verify Kubernetes binary versions
+      ansible.builtin.shell: |
+        kubeadm_ver=$(kubeadm version -o short)
+        kubelet_ver=$(kubelet --version | awk '{print $2}')
+        kubectl_ver=$(kubectl version --client -o json | jq -r '.clientVersion.gitVersion')
+        
+        echo "kubeadm: $kubeadm_ver"
+        echo "kubelet: $kubelet_ver"
+        echo "kubectl: $kubectl_ver"
+        
+        # Verify versions match (at least minor version)
+        kubeadm_minor=$(echo $kubeadm_ver | cut -d. -f1-2)
+        kubelet_minor=$(echo $kubelet_ver | cut -d. -f1-2)
+        
+        if [ "$kubeadm_minor" != "$kubelet_minor" ]; then
+          echo "Version mismatch: kubeadm $kubeadm_minor vs kubelet $kubelet_minor"
+          exit 1
+        fi
+      changed_when: false
+      register: version_check
+      
+    - name: Display Kubernetes versions
+      ansible.builtin.debug:
+        msg: "{{ version_check.stdout_lines }}"
+      
+    - name: Verify CNI plugins are installed
+      ansible.builtin.stat:
+        path: /opt/cni/bin/bridge
+      register: cni_check
+      failed_when: not cni_check.stat.exists
+      
+    - name: Count installed CNI plugins
+      ansible.builtin.shell: ls -1 /opt/cni/bin/ | wc -l
+      changed_when: false
+      register: cni_count
+      
+    - name: Display CNI plugin count
+      ansible.builtin.debug:
+        msg: "Found {{ cni_count.stdout }} CNI plugins in /opt/cni/bin/"
+        
+    - name: Run kubeadm pre-flight checks (dry-run)
+      ansible.builtin.command: kubeadm join phase preflight --config /tmp/kubeadm-join-config.yaml
+      changed_when: false
+      register: preflight_result
+      failed_when: false
+      
+    - name: Display pre-flight results
+      ansible.builtin.debug:
+        msg: 
+          - "Pre-flight check exit code: {{ preflight_result.rc }}"
+          - "{{ preflight_result.stderr_lines | default([]) }}"
+      when: preflight_result.rc != 0 or ansible_verbosity >= 1
+      
+    - name: Fail if pre-flight checks failed critically
+      ansible.builtin.fail:
+        msg: "Pre-flight checks failed. Review the errors above."
+      when: 
+        - preflight_result.rc != 0
+        - preflight_result.stderr is search('error')
+        
+    - name: Summary of pre-join validation
+      ansible.builtin.debug:
+        msg:
+          - "✓ Containerd: Running"
+          - "✓ CRI Socket: Accessible via crictl"
+          - "✓ Kernel Modules: {{ module_check.stdout }}"
+          - "✓ Sysctl: {{ sysctl_check.stdout }}"
+          - "✓ Swap: {{ swap_check.stdout }}"
+          - "✓ Binary Versions: Compatible"
+          - "✓ CNI Plugins: {{ cni_count.stdout }} installed"
+          - "✓ Pre-flight: {{ 'Passed' if preflight_result.rc == 0 else 'Warnings present' }}"
