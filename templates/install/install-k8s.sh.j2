@@ -160,6 +160,8 @@ fi
 
 section "Step 8/9: Installing Kubernetes Binaries"
 
+mkdir -p /etc/kubernetes/manifests
+
 if [[ -d "$SCRIPT_DIR/binaries/kubernetes" ]]; then
     cd "$SCRIPT_DIR/binaries/kubernetes"
 

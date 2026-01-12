@@ -328,6 +328,7 @@ validate_version() {
 
 setup_workspace() {
     section "Setting Up Workspace"
+    info "VARS: WORK_DIR -> ${WORK_DIR} / OUTPUT_DIR -> ${OUTPUT_DIR} / BUNDLE_DIR -> ${BUNDLE_DIR}"
 
     # Preserve downloaded packages if they exist
     local preserve_apt=false
@@ -390,7 +391,7 @@ setup_workspace() {
 
 download_kubernetes_binaries() {
     section "Downloading Kubernetes Binaries"
-
+    info "VARS: WORK_DIR -> ${WORK_DIR} / OUTPUT_DIR -> ${OUTPUT_DIR} / BUNDLE_DIR -> ${BUNDLE_DIR}"
     local k8s_ver=$(echo "$VERSION_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin)['kubernetes']['version'])")
     local k8s_base_url="https://dl.k8s.io/v${k8s_ver}/bin/linux/${ARCH}"
 
