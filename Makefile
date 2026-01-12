@@ -53,7 +53,7 @@ help:
 # Build with default or specified version
 build:
 	@echo "Building Kubernetes $(K8S_VERSION) bundle..."
-	cd scripts && ./create-k8s-bundle.sh $(K8S_VERSION) $(UBUNTU_VERSION) $(ARCH)
+	./scripts/create-k8s-bundle.sh $(K8S_VERSION) $(UBUNTU_VERSION) $(ARCH)
 
 # Quick build targets for common versions
 build-1.30:
