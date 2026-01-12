@@ -184,7 +184,7 @@ import sys
 
 # Load version data from YAML file
 try:
-    with open('${VERSION_FILE}', 'r') as f:
+    with open('${VERSIONS_FILE}', 'r') as f:
         version_data = yaml.safe_load(f)
 except Exception as e:
     print(f"ERROR loading version file: {e}", file=sys.stderr)
