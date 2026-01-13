@@ -186,9 +186,17 @@ import sys
 # Load version data from YAML file
 try:
     with open('${VERSIONS_FILE}', 'r') as f:
-        version_data = yaml.safe_load(f)
+        all_versions = yaml.safe_load(f)
 except Exception as e:
     print(f"ERROR loading version file: {e}", file=sys.stderr)
+    sys.exit(1)
+
+# Select the specific K8s version
+k8s_version = '${K8S_VERSION}'
+try:
+    version_data = all_versions['versions'][k8s_version]
+except KeyError:
+    print(f"ERROR: Kubernetes version {k8s_version} not found in versions file", file=sys.stderr)
     sys.exit(1)
 
 # Load template
